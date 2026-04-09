@@ -16,7 +16,7 @@ function formatShortDate(dateStr) {
 }
 
 function carryOverFromYesterday() {
-  const today = todayKey();
+  const today = getTodayKey();
 
   // FIRST TIME OPEN TODAY → do carry-over
   if (appState.lastOpenDate !== today) {

@@ -26,7 +26,7 @@ function computeDayTaskXp(dateKey) {
   return list.reduce((sum, t) => sum + getTaskDailyXp(t), 0);
 }
 
-// Hitung % dopamine: target 60% tercapai atau tidak
+// Hitung % dopamine harian berdasarkan XP didapat / total XP task hari itu (maks 100%)
 function computeDayTaskPercent(dateKey) {
   const list = appState.tasks[dateKey] || [];
   const totalBase = list.reduce((sum, t) => sum + getTaskBaseXp(t), 0);
