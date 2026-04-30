@@ -121,8 +121,3 @@ Jika ingin ganti endpoint, update konstanta webhook di `assets/js/main.js`.
 - Insight AI untuk rekomendasi task planning mingguan.
 
 ---
-
-Kalau mau, next step gue bisa bantu bikinin juga:
-
-- versi README yang lebih corporate (buat stakeholder), atau
-- versi README dev-focused lengkap dengan architecture diagram & contribution guide.
