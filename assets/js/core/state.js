@@ -67,6 +67,9 @@ function saveState() {
       lastOpenDate: appState.lastOpenDate || null
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+    if (window.HoHoCloudService && typeof window.HoHoCloudService.scheduleSave === "function") {
+      window.HoHoCloudService.scheduleSave();
+    }
   } catch (e) {
     console.error("Failed to save state:", e);
   }
@@ -74,6 +77,9 @@ function saveState() {
 
 // Generator ID simple untuk task/learning
 function generateId() {
+  if (window.crypto && typeof window.crypto.randomUUID === "function") {
+    return window.crypto.randomUUID();
+  }
   return "id_" + Math.random().toString(36).slice(2, 10);
 }
 
