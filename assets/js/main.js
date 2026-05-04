@@ -7,6 +7,7 @@ const TASK_XP_PER_EFFORT = { 1: 10, 2: 20, 3: 30 };
 const DAILY_TASK_XP_TARGET = 60;
 const LEARNING_XP_PER_EFFORT = { 1: 5, 2: 10, 3: 20 };
 const SIX_MONTHS_IN_DAYS = 183;
+window.LEARNING_XP_PER_EFFORT = LEARNING_XP_PER_EFFORT;
 
 let dopamineChart, learningChart, monthlyChart;
 
@@ -65,11 +66,25 @@ function carryOverFromYesterday() {
 
 /* DOM */
 const tabButtons = document.querySelectorAll(".tab-btn");
+const authScreenEl = document.getElementById("authScreen");
+const fullReportAreaEl = document.getElementById("fullReportArea");
 const tasksTabEl = document.getElementById("tasksTab");
 const fourdxTabEl = document.getElementById("fourdxTab");
 const learningTabEl = document.getElementById("learningTab");
+const dashboardTabEl = document.getElementById("dashboardTab");
+const dashboardTabBtn = document.getElementById("dashboardTabBtn");
 const settingsTabEl = document.getElementById("settingsTab");
   const topBarEl = document.getElementById("topBar");
+const loginForm = document.getElementById("loginForm");
+const loginEmailInput = document.getElementById("loginEmailInput");
+const loginPasswordInput = document.getElementById("loginPasswordInput");
+const loginBtn = document.getElementById("loginBtn");
+const googleLoginBtn = document.getElementById("googleLoginBtn");
+const logoutBtn = document.getElementById("logoutBtn");
+const authStatusText = document.getElementById("authStatusText");
+const supabaseConfigWarning = document.getElementById("supabaseConfigWarning");
+const sessionUserText = document.getElementById("sessionUserText");
+const cloudStatusText = document.getElementById("cloudStatusText");
 
 const hohoTaskFloat = document.getElementById("hohoTaskFloat");
 const hohoLearningFloat = document.getElementById("hohoLearningFloat");
@@ -79,6 +94,8 @@ const themeIconSpan = document.getElementById("themeIcon");
 
 const taskNameInput = document.getElementById("taskNameInput");
 const taskEffortInput = document.getElementById("taskEffortInput");
+const taskOwnerInput = document.getElementById("taskOwnerInput");
+const taskSourceInput = document.getElementById("taskSourceInput");
 const addTaskBtn = document.getElementById("addTaskBtn");
 const taskListEl = document.getElementById("taskList");
 const xpTodayText = document.getElementById("xpTodayText");
@@ -106,7 +123,35 @@ const top3skillsEl = document.getElementById("top3skills");
 
 const userNameInput = document.getElementById("userNameInput");
 const userPositionInput = document.getElementById("userPositionInput");
+const profileRoleText = document.getElementById("profileRoleText");
+const settingsAssignableUsers = document.getElementById("settingsAssignableUsers");
+const settingsRoleInput = document.getElementById("settingsRoleInput");
+const settingsManagerInput = document.getElementById("settingsManagerInput");
+const saveUserRoleBtn = document.getElementById("saveUserRoleBtn");
+const roleSaveStatusText = document.getElementById("roleSaveStatusText");
+const importLegacyBtn = document.getElementById("importLegacyBtn");
+const migrationStatusText = document.getElementById("migrationStatusText");
 const exportPdfBtn = document.getElementById("exportPdfBtn");
+const dashboardRoleLabel = document.getElementById("dashboardRoleLabel");
+const dashboardStartDate = document.getElementById("dashboardStartDate");
+const dashboardEndDate = document.getElementById("dashboardEndDate");
+const dashboardUserFilter = document.getElementById("dashboardUserFilter");
+const dashboardRoleFilter = document.getElementById("dashboardRoleFilter");
+const refreshDashboardBtn = document.getElementById("refreshDashboardBtn");
+const dashboardStatusText = document.getElementById("dashboardStatusText");
+const dashboardTableBody = document.getElementById("dashboardTableBody");
+const dashboardDetailTitle = document.getElementById("dashboardDetailTitle");
+const dashboardDetailMeta = document.getElementById("dashboardDetailMeta");
+const dashboardDetailBody = document.getElementById("dashboardDetailBody");
+const dashTotalTaskXp = document.getElementById("dashTotalTaskXp");
+const dashTotalTasksDone = document.getElementById("dashTotalTasksDone");
+const dashTotalLearningXp = document.getElementById("dashTotalLearningXp");
+const dashAvgFourdxGreen = document.getElementById("dashAvgFourdxGreen");
+const legacyTaskLearningCsv = document.getElementById("legacyTaskLearningCsv");
+const legacyFourdxCsv = document.getElementById("legacyFourdxCsv");
+const importTaskLearningCsvBtn = document.getElementById("importTaskLearningCsvBtn");
+const importFourdxCsvBtn = document.getElementById("importFourdxCsvBtn");
+const legacyImportStatusText = document.getElementById("legacyImportStatusText");
 
 // ===== 4DX DOM (UI only for now) =====
 const fourdxPeriodSelect = document.getElementById("fourdxPeriodSelect");
@@ -146,10 +191,14 @@ themeToggleBtn.addEventListener("click", ()=>{
 
 /* TABS */
 function showTab(tabId){
-[tasksTabEl, fourdxTabEl, learningTabEl, settingsTabEl].forEach(el=>el.classList.add("hidden"));
+[tasksTabEl, fourdxTabEl, learningTabEl, dashboardTabEl, settingsTabEl].forEach(el=>el && el.classList.add("hidden"));
   if(tabId==="tasksTab") tasksTabEl.classList.remove("hidden");
   if(tabId==="fourdxTab") fourdxTabEl.classList.remove("hidden");
   if(tabId==="learningTab") learningTabEl.classList.remove("hidden");
+  if(tabId==="dashboardTab" && dashboardTabEl) {
+    dashboardTabEl.classList.remove("hidden");
+    renderDashboard();
+  }
   if(tabId==="settingsTab") settingsTabEl.classList.remove("hidden");
 
   tabButtons.forEach(btn=>{
@@ -246,6 +295,14 @@ function renderTasksForToday(){
         }
       });
       nameCell.appendChild(nameSpan);
+      if (task.source && task.source !== "self") {
+        const meta = document.createElement("div");
+        meta.style.fontSize = "10px";
+        meta.style.color = "var(--text-light)";
+        meta.style.marginTop = "2px";
+        meta.textContent = task.source === "delegated" ? "Delegated task" : "Assigned task";
+        nameCell.appendChild(meta);
+      }
 
       const effortCell = document.createElement("div");
       effortCell.style.fontSize="12px";
@@ -322,14 +379,72 @@ function renderTasksForToday(){
   updateHoHoMood();
 }
 
-addTaskBtn.addEventListener("click", ()=>{
+addTaskBtn.addEventListener("click", async ()=>{
   const name = taskNameInput.value.trim();
   const effort = parseInt(taskEffortInput.value,10) || 1;
   if(!name){ alert("Please enter a task name."); return; }
   const key = getTodayKey();
+  const currentUser = window.HoHoCloudService ? window.HoHoCloudService.getCurrentUser() : null;
+  const selectedOwner = taskOwnerInput ? taskOwnerInput.value : "self";
+  const ownerId = selectedOwner && selectedOwner !== "self" ? selectedOwner : (currentUser && currentUser.id);
+  const currentProfile = window.HoHoCloudService ? window.HoHoCloudService.getCurrentProfile() : null;
+  const currentRole = (currentProfile && currentProfile.role) || appState.user.role || "regular_user";
+  let source = taskSourceInput ? taskSourceInput.value : "self";
+  const profiles = window.HoHoCloudService ? window.HoHoCloudService.getAssignableProfiles() : [];
+  const selectedProfile = profiles.find((profile) => profile.id === ownerId);
+  const canAssignSelected =
+    currentRole === "superuser" ||
+    (currentRole === "admin" && selectedProfile && selectedProfile.manager_id === currentUser.id);
+  if (ownerId && currentUser && ownerId !== currentUser.id && source === "assigned" && !canAssignSelected) {
+    source = "delegated";
+    if (taskSourceInput) taskSourceInput.value = "delegated";
+  }
+
+  if (ownerId && currentUser && ownerId !== currentUser.id && window.HoHoTaskService) {
+    try {
+      addTaskBtn.disabled = true;
+      addTaskBtn.textContent = "Saving...";
+      await window.HoHoTaskService.createTask({
+        id: generateId(),
+        name,
+        effort,
+        status: "none",
+        source,
+        ownerId,
+        createdBy: currentUser.id,
+        assignedBy: currentUser.id,
+        task_date: key,
+        createdAt: new Date().toISOString()
+      }, currentUser.id);
+      taskNameInput.value="";
+      taskEffortInput.value="1";
+      if (taskOwnerInput) taskOwnerInput.value = "self";
+      if (taskSourceInput) taskSourceInput.value = "self";
+      if (cloudStatusText) cloudStatusText.textContent = "Task sent";
+      alert("Task berhasil dikirim ke user penerima.");
+      return;
+    } catch (err) {
+      console.error("Failed to create assigned/delegated task", err);
+      const message = err.message || String(err);
+      if (message.includes("row-level security")) {
+        alert("Gagal membuat task untuk user lain: akses ditolak oleh RLS. Untuk kirim ke user yang bukan bawahanmu, pilih Delegated task.");
+      } else {
+        alert("Gagal membuat task untuk user lain: " + message);
+      }
+      return;
+    } finally {
+      addTaskBtn.disabled = false;
+      addTaskBtn.textContent = "+ Add Task";
+    }
+  }
+
   const arr = ensureArray(appState.tasks,key);
   arr.push({
     id: generateId(),
+    ownerId: ownerId || "local",
+    createdBy: currentUser ? currentUser.id : "local",
+    assignedBy: null,
+    source: "self",
     name,
     effort,
     status: "none",
@@ -2371,67 +2486,419 @@ function fourdxRenderEditGrid(){
     }
   };
 }
-/* INIT */
-document.addEventListener("DOMContentLoaded", () => {
-  // Load state awal
-  loadState();
+function setAuthStatus(message, isError) {
+  if (!authStatusText) return;
+  authStatusText.textContent = message || "";
+  authStatusText.style.color = isError ? "#dc2626" : "var(--text-light)";
+}
 
-  // Theme
+function showAuthScreen() {
+  if (authScreenEl) authScreenEl.classList.remove("hidden");
+  if (fullReportAreaEl) fullReportAreaEl.classList.add("hidden");
+  if (topBarEl) topBarEl.classList.add("hidden");
+  if (hohoTaskFloat) hohoTaskFloat.classList.add("hidden");
+  if (hohoLearningFloat) hohoLearningFloat.classList.add("hidden");
+}
+
+function showAppShell() {
+  if (authScreenEl) authScreenEl.classList.add("hidden");
+  if (fullReportAreaEl) fullReportAreaEl.classList.remove("hidden");
+  if (topBarEl) topBarEl.classList.remove("hidden");
+}
+
+function renderAll() {
   applyTheme(appState.theme || "light");
-
-  // Default buka tab Tasks
+  updateRoleVisibility();
   showTab("tasksTab");
-
-  // Render Tasks & Learning hari ini
   renderTasksForToday();
   renderTaskHeatmap();
   renderLearningForToday();
   renderLearningHeatmap();
-
-  // Skill progress & top 3
   renderSkillProgress();
   renderTop3Skills();
-
-  // Profile
   renderProfile();
-
-  // Ho-Ho idle bounce
-  scheduleRandomBounce();
-
-  // 4DX UI (dummy)
   render4DX();
-  if (fourdxPeriodSelect) {
-    fourdxPeriodSelect.addEventListener("change", render4DX);
+}
+
+function canUseDashboard() {
+  const currentProfile = window.HoHoCloudService ? window.HoHoCloudService.getCurrentProfile() : null;
+  const role = (currentProfile && currentProfile.role) || appState.user.role || "regular_user";
+  return role === "superuser" || role === "admin";
+}
+
+function updateRoleVisibility() {
+  const currentProfile = window.HoHoCloudService ? window.HoHoCloudService.getCurrentProfile() : null;
+  const role = (currentProfile && currentProfile.role) || appState.user.role || "regular_user";
+  const canDashboard = role === "superuser" || role === "admin";
+  if (dashboardTabBtn) dashboardTabBtn.classList.toggle("hidden", !canDashboard);
+  document.querySelectorAll(".admin-only-card").forEach((el) => {
+    el.classList.toggle("hidden", !canDashboard);
+  });
+  document.querySelectorAll(".superuser-only-card").forEach((el) => {
+    el.classList.toggle("hidden", role !== "superuser");
+  });
+  [settingsRoleInput, settingsManagerInput, saveUserRoleBtn].forEach((el) => {
+    if (el) el.disabled = role !== "superuser";
+  });
+  if (dashboardRoleLabel) dashboardRoleLabel.textContent = role === "superuser" ? "Superuser view" : "Admin view";
+}
+
+function populateAssignableUsers() {
+  const currentUser = window.HoHoCloudService ? window.HoHoCloudService.getCurrentUser() : null;
+  const profiles = window.HoHoCloudService ? window.HoHoCloudService.getAssignableProfiles() : [];
+  const currentProfile = window.HoHoCloudService ? window.HoHoCloudService.getCurrentProfile() : null;
+  const role = (currentProfile && currentProfile.role) || appState.user.role || "regular_user";
+
+  if (profileRoleText) profileRoleText.textContent = role;
+  if (sessionUserText) sessionUserText.textContent = appState.user.name || appState.user.email || "Signed in";
+
+  if (taskOwnerInput) {
+    taskOwnerInput.innerHTML = `<option value="self">Me</option>`;
+    profiles.forEach((profile) => {
+      if (!currentUser || profile.id === currentUser.id) return;
+      if (profile.status && profile.status !== "active") return;
+      const opt = document.createElement("option");
+      opt.value = profile.id;
+      opt.textContent = `${profile.name || profile.email} (${profile.role || "regular_user"})`;
+      taskOwnerInput.appendChild(opt);
+    });
   }
-  // 4DX: click handler for Today check-in (bind once)
-if (leadCheckinToday && !leadCheckinToday.dataset.bound) {
-  leadCheckinToday.dataset.bound = "1";
 
-  leadCheckinToday.addEventListener("click", (e) => {
-    const btn = e.target.closest(".fourdx-check-btn");
-    if (!btn) return;
+  if (settingsAssignableUsers) {
+    settingsAssignableUsers.innerHTML = "";
+    profiles.forEach((profile) => {
+      const opt = document.createElement("option");
+      opt.value = profile.id;
+      opt.textContent = `${profile.name || profile.email} — ${profile.role || "regular_user"}${profile.status && profile.status !== "active" ? " (" + profile.status + ")" : ""}`;
+      opt.dataset.role = profile.role || "regular_user";
+      opt.dataset.managerId = profile.manager_id || "";
+      settingsAssignableUsers.appendChild(opt);
+    });
+    if (settingsRoleInput && settingsAssignableUsers.selectedOptions[0]) {
+      settingsRoleInput.value = settingsAssignableUsers.selectedOptions[0].dataset.role || "regular_user";
+    }
+    populateManagerOptions();
+  }
+  syncTaskSourceOptions();
+}
 
-    const row = btn.closest("[data-lead]");
-    if (!row) return;
+function populateManagerOptions() {
+  if (!settingsManagerInput || !settingsAssignableUsers) return;
+  const profiles = window.HoHoCloudService ? window.HoHoCloudService.getAssignableProfiles() : [];
+  const selectedUserId = settingsAssignableUsers.value;
+  const selectedManagerId = settingsAssignableUsers.selectedOptions[0]?.dataset.managerId || "";
 
-    // UI: highlight selected inside that row
-    row.querySelectorAll(".fourdx-check-btn").forEach((b) => b.classList.remove("selected"));
-    btn.classList.add("selected");
+  settingsManagerInput.innerHTML = `<option value="">No manager</option>`;
+  profiles
+    .filter((profile) => profile.id !== selectedUserId && (profile.role === "admin" || profile.role === "superuser"))
+    .forEach((profile) => {
+      const opt = document.createElement("option");
+      opt.value = profile.id;
+      opt.textContent = `${profile.name || profile.email} (${profile.role})`;
+      settingsManagerInput.appendChild(opt);
+    });
 
-    // Save
-    ensure4DXState();
-    const leadName = row.getAttribute("data-lead");
-    const status = btn.getAttribute("data-status") || "RED";
-    const todayKey = getTodayKey();
+  settingsManagerInput.value = Array.from(settingsManagerInput.options).some((opt) => opt.value === selectedManagerId)
+    ? selectedManagerId
+    : "";
+}
 
-    if (!appState.fourdx.checkins[todayKey]) appState.fourdx.checkins[todayKey] = {};
-    appState.fourdx.checkins[todayKey][leadName] = status;
+function syncTaskSourceOptions() {
+  if (!taskOwnerInput || !taskSourceInput) return;
+  const currentUser = window.HoHoCloudService ? window.HoHoCloudService.getCurrentUser() : null;
+  const currentProfile = window.HoHoCloudService ? window.HoHoCloudService.getCurrentProfile() : null;
+  const profiles = window.HoHoCloudService ? window.HoHoCloudService.getAssignableProfiles() : [];
+  const role = (currentProfile && currentProfile.role) || appState.user.role || "regular_user";
+  const sendingToOther = currentUser && taskOwnerInput.value && taskOwnerInput.value !== "self";
+  const selectedProfile = profiles.find((profile) => profile.id === taskOwnerInput.value);
+  const canAssignSelected =
+    role === "superuser" ||
+    (role === "admin" && selectedProfile && selectedProfile.manager_id === currentUser.id);
 
-    saveState();
-    render4DX(); // refresh monthly + completion + battery
+  Array.from(taskSourceInput.options).forEach((option) => {
+    option.disabled = false;
+  });
+
+  if (!sendingToOther) {
+    taskSourceInput.value = "self";
+    Array.from(taskSourceInput.options).forEach((option) => {
+      option.disabled = option.value !== "self";
+    });
+    return;
+  }
+
+  const selfOption = taskSourceInput.querySelector('option[value="self"]');
+  if (selfOption) selfOption.disabled = true;
+
+  const assignedOption = taskSourceInput.querySelector('option[value="assigned"]');
+  if (assignedOption && !canAssignSelected) {
+    assignedOption.disabled = true;
+  }
+
+  if (canAssignSelected) {
+    if (taskSourceInput.value === "self") taskSourceInput.value = "assigned";
+  } else {
+    taskSourceInput.value = "delegated";
+  }
+}
+
+function dashboardDefaultDates() {
+  const today = new Date(getTodayKey() + "T00:00:00");
+  const start = new Date(today.getFullYear(), today.getMonth(), 1);
+  return {
+    startDate: new Date(start.getTime() - start.getTimezoneOffset() * 60000).toISOString().slice(0, 10),
+    endDate: getTodayKey()
+  };
+}
+
+function ensureDashboardDates() {
+  if (!dashboardStartDate || !dashboardEndDate) return dashboardDefaultDates();
+  const defaults = dashboardDefaultDates();
+  if (!dashboardStartDate.value) dashboardStartDate.value = defaults.startDate;
+  if (!dashboardEndDate.value) dashboardEndDate.value = defaults.endDate;
+  return { startDate: dashboardStartDate.value, endDate: dashboardEndDate.value };
+}
+
+function formatDashPct(value) {
+  return Math.max(0, Math.min(100, Math.round(Number(value) || 0))) + "%";
+}
+
+function setDashboardStatus(message, isError) {
+  if (!dashboardStatusText) return;
+  dashboardStatusText.textContent = message || "";
+  dashboardStatusText.style.color = isError ? "#dc2626" : "var(--text-light)";
+}
+
+function populateDashboardFilters(rows) {
+  if (!dashboardUserFilter) return;
+  const selected = dashboardUserFilter.value || "all";
+  dashboardUserFilter.innerHTML = `<option value="all">All visible users</option>`;
+  rows.forEach((row) => {
+    const opt = document.createElement("option");
+    opt.value = row.profile.id;
+    opt.textContent = row.profile.name || row.profile.email || "Unnamed user";
+    dashboardUserFilter.appendChild(opt);
+  });
+  dashboardUserFilter.value = Array.from(dashboardUserFilter.options).some((opt) => opt.value === selected) ? selected : "all";
+}
+
+function filterDashboardRows(rows) {
+  const userId = dashboardUserFilter ? dashboardUserFilter.value : "all";
+  const role = dashboardRoleFilter ? dashboardRoleFilter.value : "all";
+  return rows.filter((row) => {
+    if (userId !== "all" && row.profile.id !== userId) return false;
+    if (role !== "all" && row.profile.role !== role) return false;
+    return true;
   });
 }
-// 4DX Edit Mode bindings
+
+function renderDashboardTotals(rows) {
+  const totalTaskXp = rows.reduce((sum, row) => sum + row.totalTaskXp, 0);
+  const totalDone = rows.reduce((sum, row) => sum + row.done, 0);
+  const totalLearningXp = rows.reduce((sum, row) => sum + row.totalLearningXp, 0);
+  const greenRows = rows.filter((row) => row.fourdxGreenPct > 0);
+  const avgGreen = greenRows.length
+    ? Math.round(greenRows.reduce((sum, row) => sum + row.fourdxGreenPct, 0) / greenRows.length)
+    : 0;
+  if (dashTotalTaskXp) dashTotalTaskXp.textContent = totalTaskXp;
+  if (dashTotalTasksDone) dashTotalTasksDone.textContent = totalDone;
+  if (dashTotalLearningXp) dashTotalLearningXp.textContent = totalLearningXp;
+  if (dashAvgFourdxGreen) dashAvgFourdxGreen.textContent = avgGreen + "%";
+}
+
+function renderDashboardTable(rows) {
+  if (!dashboardTableBody) return;
+  dashboardTableBody.innerHTML = "";
+  if (!rows.length) {
+    dashboardTableBody.innerHTML = `<tr><td colspan="11">No visible dashboard data for this filter.</td></tr>`;
+    return;
+  }
+
+  rows.forEach((row) => {
+    const tr = document.createElement("tr");
+    tr.dataset.userId = row.profile.id;
+    tr.innerHTML = `
+      <td>${row.profile.name || row.profile.email || "-"}</td>
+      <td>${row.profile.role || "-"}</td>
+      <td>${row.totalTaskXp}</td>
+      <td>${row.done}</td>
+      <td>${row.progress}</td>
+      <td>${row.blocked}</td>
+      <td>${row.totalLearningXp}</td>
+      <td>${row.learningEntries}</td>
+      <td>${formatDashPct(row.fourdxGreenPct)}</td>
+      <td>${row.assigned}</td>
+      <td>${row.delegated}</td>
+    `;
+    tr.addEventListener("click", () => renderDashboardDetail(row));
+    dashboardTableBody.appendChild(tr);
+  });
+}
+
+function renderDashboardDetail(row) {
+  if (!dashboardDetailTitle || !dashboardDetailBody || !dashboardDetailMeta) return;
+  dashboardDetailTitle.textContent = row.profile.name || row.profile.email || "User Detail";
+  dashboardDetailMeta.textContent = `${row.profile.role || "regular_user"} • ${row.profile.email || "-"}`;
+
+  const recentTasks = row.tasks.slice(0, 8).map((task) =>
+    `<li>${task.task_date}: <b>${task.title}</b> (${task.status}, effort ${task.effort}, ${task.source})</li>`
+  ).join("");
+  const recentLearning = row.learning.slice(0, 8).map((entry) =>
+    `<li>${entry.entry_date}: <b>${categoryLabel(entry.category)}</b>${entry.subskill ? " - " + entry.subskill : ""} (${entry.effort})</li>`
+  ).join("");
+
+  dashboardDetailBody.className = "dashboard-detail-grid";
+  dashboardDetailBody.innerHTML = `
+    <div class="dashboard-detail-block">
+      <h4>Tasks</h4>
+      <div>XP: <b>${row.totalTaskXp}</b></div>
+      <div>Done: <b>${row.done}</b> • Progress: <b>${row.progress}</b> • Blocked: <b>${row.blocked}</b></div>
+      <ul>${recentTasks || "<li>No task rows in this period.</li>"}</ul>
+    </div>
+    <div class="dashboard-detail-block">
+      <h4>Learning</h4>
+      <div>XP: <b>${row.totalLearningXp}</b></div>
+      <div>Entries: <b>${row.learningEntries}</b></div>
+      <ul>${recentLearning || "<li>No learning rows in this period.</li>"}</ul>
+    </div>
+    <div class="dashboard-detail-block">
+      <h4>4DX</h4>
+      <div>Green: <b>${formatDashPct(row.fourdxGreenPct)}</b></div>
+      <div>Check-ins: <b>${row.fourdxExpected}</b></div>
+      <div>Legacy task XP: <b>${row.legacyTaskXp}</b></div>
+      <div>Legacy learning XP: <b>${row.legacyLearningXp}</b></div>
+    </div>
+  `;
+}
+
+async function renderDashboard() {
+  if (!canUseDashboard() || !window.HoHoDashboardService) return;
+  const currentProfile = window.HoHoCloudService ? window.HoHoCloudService.getCurrentProfile() : null;
+  const { startDate, endDate } = ensureDashboardDates();
+  setDashboardStatus("Loading dashboard...");
+  try {
+    const rows = await window.HoHoDashboardService.loadDashboardData({ startDate, endDate, currentProfile });
+    window.__hohoDashboardRows = rows;
+    populateDashboardFilters(rows);
+    const filtered = filterDashboardRows(rows);
+    renderDashboardTotals(filtered);
+    renderDashboardTable(filtered);
+    setDashboardStatus(`Showing ${filtered.length} user(s), ${startDate} to ${endDate}.`);
+  } catch (err) {
+    console.error("Dashboard load failed", err);
+    setDashboardStatus("Dashboard failed: " + (err.message || err), true);
+  }
+}
+
+function rerenderDashboardFromCache() {
+  const rows = window.__hohoDashboardRows || [];
+  const filtered = filterDashboardRows(rows);
+  renderDashboardTotals(filtered);
+  renderDashboardTable(filtered);
+}
+
+function bindAppEventsOnce() {
+  if (taskOwnerInput && !taskOwnerInput.dataset.bound) {
+    taskOwnerInput.dataset.bound = "1";
+    taskOwnerInput.addEventListener("change", syncTaskSourceOptions);
+  }
+
+  if (taskSourceInput && !taskSourceInput.dataset.bound) {
+    taskSourceInput.dataset.bound = "1";
+    taskSourceInput.addEventListener("change", syncTaskSourceOptions);
+  }
+
+  if (refreshDashboardBtn && !refreshDashboardBtn.dataset.bound) {
+    refreshDashboardBtn.dataset.bound = "1";
+    refreshDashboardBtn.addEventListener("click", renderDashboard);
+  }
+
+  [dashboardStartDate, dashboardEndDate].forEach((input) => {
+    if (input && !input.dataset.bound) {
+      input.dataset.bound = "1";
+      input.addEventListener("change", renderDashboard);
+    }
+  });
+
+  [dashboardUserFilter, dashboardRoleFilter].forEach((input) => {
+    if (input && !input.dataset.bound) {
+      input.dataset.bound = "1";
+      input.addEventListener("change", rerenderDashboardFromCache);
+    }
+  });
+
+  if (importTaskLearningCsvBtn && !importTaskLearningCsvBtn.dataset.bound) {
+    importTaskLearningCsvBtn.dataset.bound = "1";
+    importTaskLearningCsvBtn.addEventListener("click", async () => {
+      if (!legacyTaskLearningCsv || !legacyTaskLearningCsv.value.trim()) {
+        if (legacyImportStatusText) legacyImportStatusText.textContent = "Paste Task/Learning CSV first.";
+        return;
+      }
+      importTaskLearningCsvBtn.disabled = true;
+      try {
+        const result = await window.HoHoDashboardService.importTaskLearningCsv(legacyTaskLearningCsv.value);
+        if (legacyImportStatusText) legacyImportStatusText.textContent = `Imported ${result.count} Task/Learning legacy row(s).`;
+        await renderDashboard();
+      } catch (err) {
+        console.error("Task/Learning CSV import failed", err);
+        if (legacyImportStatusText) legacyImportStatusText.textContent = "Task/Learning import failed: " + (err.message || err);
+      } finally {
+        importTaskLearningCsvBtn.disabled = false;
+      }
+    });
+  }
+
+  if (importFourdxCsvBtn && !importFourdxCsvBtn.dataset.bound) {
+    importFourdxCsvBtn.dataset.bound = "1";
+    importFourdxCsvBtn.addEventListener("click", async () => {
+      if (!legacyFourdxCsv || !legacyFourdxCsv.value.trim()) {
+        if (legacyImportStatusText) legacyImportStatusText.textContent = "Paste 4DX CSV first.";
+        return;
+      }
+      importFourdxCsvBtn.disabled = true;
+      try {
+        const result = await window.HoHoDashboardService.importFourdxCsv(legacyFourdxCsv.value);
+        if (legacyImportStatusText) legacyImportStatusText.textContent = `Imported ${result.count} 4DX legacy row(s).`;
+        await renderDashboard();
+      } catch (err) {
+        console.error("4DX CSV import failed", err);
+        if (legacyImportStatusText) legacyImportStatusText.textContent = "4DX import failed: " + (err.message || err);
+      } finally {
+        importFourdxCsvBtn.disabled = false;
+      }
+    });
+  }
+
+  if (fourdxPeriodSelect && !fourdxPeriodSelect.dataset.bound) {
+    fourdxPeriodSelect.dataset.bound = "1";
+    fourdxPeriodSelect.addEventListener("change", render4DX);
+  }
+
+  if (leadCheckinToday && !leadCheckinToday.dataset.bound) {
+    leadCheckinToday.dataset.bound = "1";
+    leadCheckinToday.addEventListener("click", (e) => {
+      const btn = e.target.closest(".fourdx-check-btn");
+      if (!btn) return;
+
+      const row = btn.closest("[data-lead]");
+      if (!row) return;
+
+      row.querySelectorAll(".fourdx-check-btn").forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+
+      ensure4DXState();
+      const leadName = row.getAttribute("data-lead");
+      const status = btn.getAttribute("data-status") || "RED";
+      const todayKey = getTodayKey();
+
+      if (!appState.fourdx.checkins[todayKey]) appState.fourdx.checkins[todayKey] = {};
+      appState.fourdx.checkins[todayKey][leadName] = status;
+
+      saveState();
+      render4DX();
+    });
+  }
+
   const editBtn = document.getElementById("fourdxEditBtn");
   const closeBtn = document.getElementById("fourdxEditCloseBtn");
   const modal = document.getElementById("fourdxEditModal");
@@ -2452,21 +2919,204 @@ if (leadCheckinToday && !leadCheckinToday.dataset.bound) {
       }
     });
   }
-  // 🔗 Hubungkan tombol Sync Weekly → fungsi syncWeeklyToGoogleSheet()
+
   const syncBtn = document.getElementById("syncWeeklyBtn");
-  if (syncBtn) {
+  if (syncBtn && !syncBtn.dataset.bound) {
+    syncBtn.dataset.bound = "1";
     syncBtn.addEventListener("click", () => {
-      // Hindari double-klik terlalu cepat
       if (syncBtn.disabled) return;
       syncWeeklyToGoogleSheet();
     });
   }
-});
-// 🔗 Tombol Sync 4DX Weekly
+
   const sync4dxBtn = document.getElementById("sync4DXWeeklyBtn");
-  if (sync4dxBtn) {
+  if (sync4dxBtn && !sync4dxBtn.dataset.bound) {
+    sync4dxBtn.dataset.bound = "1";
     sync4dxBtn.addEventListener("click", () => {
       if (sync4dxBtn.disabled) return;
       sync4DXWeeklyToGoogleSheet();
     });
   }
+
+  if (importLegacyBtn && !importLegacyBtn.dataset.bound) {
+    importLegacyBtn.dataset.bound = "1";
+    importLegacyBtn.addEventListener("click", async () => {
+      const currentUser = window.HoHoCloudService ? window.HoHoCloudService.getCurrentUser() : null;
+      if (!currentUser) return;
+      const ok = confirm("Import data HoHo v1 dari localStorage browser ini ke akun yang sedang login?");
+      if (!ok) return;
+      importLegacyBtn.disabled = true;
+      try {
+        const result = await window.HoHoMigrationService.importLegacyState(currentUser.id);
+        if (migrationStatusText) migrationStatusText.textContent = result.message;
+        renderAll();
+      } catch (err) {
+        console.error("Legacy import failed", err);
+        if (migrationStatusText) migrationStatusText.textContent = "Import gagal: " + (err.message || err);
+      } finally {
+        importLegacyBtn.disabled = false;
+      }
+    });
+  }
+
+  if (settingsAssignableUsers && !settingsAssignableUsers.dataset.bound) {
+    settingsAssignableUsers.dataset.bound = "1";
+    settingsAssignableUsers.addEventListener("change", () => {
+      if (settingsRoleInput && settingsAssignableUsers.selectedOptions[0]) {
+        settingsRoleInput.value = settingsAssignableUsers.selectedOptions[0].dataset.role || "regular_user";
+      }
+      populateManagerOptions();
+    });
+  }
+
+  if (saveUserRoleBtn && !saveUserRoleBtn.dataset.bound) {
+    saveUserRoleBtn.dataset.bound = "1";
+    saveUserRoleBtn.addEventListener("click", async () => {
+      const userId = settingsAssignableUsers ? settingsAssignableUsers.value : "";
+      const role = settingsRoleInput ? settingsRoleInput.value : "regular_user";
+      const managerId = settingsManagerInput ? settingsManagerInput.value : "";
+      if (!userId) return;
+      saveUserRoleBtn.disabled = true;
+      if (roleSaveStatusText) roleSaveStatusText.textContent = "Saving role...";
+      try {
+        const updated = await window.HoHoProfileService.updateManagedProfile(userId, {
+          role,
+          manager_id: managerId || null
+        });
+        if (roleSaveStatusText) {
+          roleSaveStatusText.textContent = `User updated: ${updated.email} → ${updated.role}${updated.manager_id ? " with manager set" : ""}`;
+        }
+        await window.HoHoCloudService.hydrate({ user: window.HoHoCloudService.getCurrentUser() });
+        populateAssignableUsers();
+        await renderDashboard();
+      } catch (err) {
+        console.error("Role update failed", err);
+        if (roleSaveStatusText) roleSaveStatusText.textContent = "User update failed: " + (err.message || err);
+      } finally {
+        saveUserRoleBtn.disabled = false;
+      }
+    });
+  }
+
+  if (!window.__hohoBounceStarted) {
+    window.__hohoBounceStarted = true;
+    scheduleRandomBounce();
+  }
+}
+
+async function openAuthenticatedApp(session) {
+  if (cloudStatusText) cloudStatusText.textContent = "Loading cloud data...";
+  await window.HoHoCloudService.hydrate(session);
+  populateAssignableUsers();
+  showAppShell();
+  renderAll();
+  bindAppEventsOnce();
+  if (cloudStatusText) cloudStatusText.textContent = "Cloud synced";
+}
+
+let authOpenInProgress = false;
+let lastOpenedSessionUserId = null;
+
+function queueAuthenticatedOpen(session) {
+  if (!session || !session.user) return;
+  const userId = session.user.id;
+  if (authOpenInProgress || lastOpenedSessionUserId === userId) return;
+
+  authOpenInProgress = true;
+  window.setTimeout(async () => {
+    try {
+      await openAuthenticatedApp(session);
+      lastOpenedSessionUserId = userId;
+    } catch (err) {
+      console.error("Failed to open authenticated app", err);
+      setAuthStatus("Gagal load data Supabase: " + (err.message || err), true);
+      showAuthScreen();
+    } finally {
+      authOpenInProgress = false;
+    }
+  }, 0);
+}
+
+function bindAuthEventsOnce() {
+  if (loginForm && !loginForm.dataset.bound) {
+    loginForm.dataset.bound = "1";
+    loginForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setAuthStatus("Logging in...");
+      if (loginBtn) loginBtn.disabled = true;
+      try {
+        const { error } = await window.HoHoAuthService.signIn(
+          loginEmailInput.value.trim(),
+          loginPasswordInput.value
+        );
+        if (error) throw error;
+        setAuthStatus("Login berhasil. Loading data...");
+      } catch (err) {
+        setAuthStatus(err.message || "Login gagal.", true);
+      } finally {
+        if (loginBtn) loginBtn.disabled = false;
+      }
+    });
+  }
+
+  if (googleLoginBtn && !googleLoginBtn.dataset.bound) {
+    googleLoginBtn.dataset.bound = "1";
+    googleLoginBtn.addEventListener("click", async () => {
+      setAuthStatus("Opening Google login...");
+      const { error } = await window.HoHoAuthService.signInWithGoogle();
+      if (error) setAuthStatus(error.message, true);
+    });
+  }
+
+  if (logoutBtn && !logoutBtn.dataset.bound) {
+    logoutBtn.dataset.bound = "1";
+    logoutBtn.addEventListener("click", async () => {
+      await window.HoHoAuthService.signOut();
+      window.HoHoCloudService.resetSession();
+      showAuthScreen();
+      setAuthStatus("Logged out.");
+    });
+  }
+}
+
+/* INIT */
+document.addEventListener("DOMContentLoaded", async () => {
+  loadState();
+  applyTheme(appState.theme || "light");
+  showAuthScreen();
+  bindAuthEventsOnce();
+
+  const configured = window.HoHoAuthService && window.HoHoAuthService.isConfigured();
+  if (supabaseConfigWarning) supabaseConfigWarning.classList.toggle("hidden", configured);
+  if (googleLoginBtn && window.HOHO_ENV && window.HOHO_ENV.ENABLE_GOOGLE_OAUTH) {
+    googleLoginBtn.classList.remove("hidden");
+  }
+
+  if (!configured) {
+    setAuthStatus("Isi Supabase URL dan publishable/anon key dulu untuk mengaktifkan login.", true);
+    return;
+  }
+
+  window.HoHoAuthService.onAuthStateChange((event, session) => {
+    if (event === "SIGNED_OUT") {
+      lastOpenedSessionUserId = null;
+      window.HoHoCloudService.resetSession();
+      showAuthScreen();
+      return;
+    }
+    if (session && (event === "INITIAL_SESSION" || event === "SIGNED_IN" || event === "TOKEN_REFRESHED")) {
+      queueAuthenticatedOpen(session);
+    }
+  });
+
+  const { session, error } = await window.HoHoAuthService.getSession();
+  if (error) {
+    setAuthStatus(error.message, true);
+    return;
+  }
+  if (session) {
+    queueAuthenticatedOpen(session);
+  } else {
+    setAuthStatus("Silakan login dengan akun yang sudah dibuat/diundang.");
+  }
+});

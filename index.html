@@ -13,11 +13,40 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 </head>
 <body>
+<section id="authScreen" class="auth-screen">
+  <div class="auth-panel">
+    <div class="auth-brand">
+      <img src="hoho-logo.png" alt="HoHo" />
+      <div>
+        <h1>HeyHoLetsGo v2</h1>
+        <p>Login untuk membuka dashboard private kamu.</p>
+      </div>
+    </div>
+
+    <div id="supabaseConfigWarning" class="auth-warning hidden">
+      Supabase belum dikonfigurasi. Isi `assets/js/config/env.js` dengan Project URL dan publishable/anon key.
+    </div>
+
+    <form id="loginForm" class="auth-form">
+      <label>Email</label>
+      <input id="loginEmailInput" type="email" autocomplete="email" placeholder="you@company.com" required />
+
+      <label>Password</label>
+      <input id="loginPasswordInput" type="password" autocomplete="current-password" placeholder="Your password" required />
+
+      <button id="loginBtn" type="submit">Login</button>
+      <button id="googleLoginBtn" type="button" class="btn-ghost hidden">Login with Google</button>
+      <div id="authStatusText" class="auth-status"></div>
+    </form>
+  </div>
+</section>
+
   <!-- TOP LOGO BAR -->
-<div id="topBar" style="
+<div id="topBar" class="hidden" style="
   width: 100%;
   display: flex;
   justify-content: space-between;
@@ -28,13 +57,18 @@
   <img src="savvy-logo.png" style="height: 42px; object-fit: contain;">
   <img src="hoho-logo.png" style="height: 46px; object-fit: contain;">
 </div>
-<div id="fullReportArea" class="app-container">
+<div id="fullReportArea" class="app-container hidden">
   <header>
     <div>
       <h1>HeyHoLetsGo</h1>
       <p>Daily dopamine tracker for tasks & learning</p>
     </div>
     <div style="display:flex;align-items:center;gap:8px;">
+      <div class="session-chip">
+        <span id="sessionUserText">Not signed in</span>
+        <small id="cloudStatusText">Cloud ready</small>
+      </div>
+      <button id="logoutBtn" type="button" class="btn-ghost">Logout</button>
       <button id="themeToggle" type="button" class="btn-ghost" style="display:flex;align-items:center;gap:6px;">
         <span style="font-size:12px;">Light</span>
         <span id="themeIcon">🌞</span>
@@ -46,6 +80,7 @@
     <button class="tab-btn active" data-tab="tasksTab">Tasks & Productivity</button>
     <button class="tab-btn" data-tab="fourdxTab">4DX</button>
     <button class="tab-btn" data-tab="learningTab">Learning & Skills</button>
+    <button class="tab-btn hidden" id="dashboardTabBtn" data-tab="dashboardTab">Dashboard</button>
     <button class="tab-btn" data-tab="settingsTab">Settings & Reports</button>
   </div>
 
@@ -140,6 +175,22 @@
         <div></div>
         <div>
           <button id="addTaskBtn" type="button">+ Add Task</button>
+        </div>
+      </div>
+      <div class="task-assignment-row">
+        <div>
+          <label>Assign To</label>
+          <select id="taskOwnerInput">
+            <option value="self">Me</option>
+          </select>
+        </div>
+        <div>
+          <label>Task Source</label>
+          <select id="taskSourceInput">
+            <option value="self">Personal task</option>
+            <option value="assigned">Assigned task</option>
+            <option value="delegated">Delegated task</option>
+          </select>
         </div>
       </div>
       <div id="taskList" style="display:flex;flex-direction:column;gap:8px;font-size:13px;"></div>
@@ -414,12 +465,130 @@
     </div>
   </section>
 
+  <!-- ===== TAB DASHBOARD ===== -->
+  <section id="dashboardTab" class="tab-content hidden">
+    <div class="card">
+      <div class="section-title">
+        <span>Team Dashboard</span>
+        <small id="dashboardRoleLabel">Admin view</small>
+      </div>
+      <div class="dashboard-filters">
+        <div>
+          <label>Start Date</label>
+          <input id="dashboardStartDate" type="date" />
+        </div>
+        <div>
+          <label>End Date</label>
+          <input id="dashboardEndDate" type="date" />
+        </div>
+        <div>
+          <label>User</label>
+          <select id="dashboardUserFilter">
+            <option value="all">All visible users</option>
+          </select>
+        </div>
+        <div>
+          <label>Role</label>
+          <select id="dashboardRoleFilter">
+            <option value="all">All roles</option>
+            <option value="superuser">superuser</option>
+            <option value="admin">admin</option>
+            <option value="regular_user">regular_user</option>
+          </select>
+        </div>
+        <div style="display:flex;align-items:flex-end;">
+          <button id="refreshDashboardBtn" type="button">Refresh</button>
+        </div>
+      </div>
+      <div id="dashboardStatusText" class="dashboard-status">Loading dashboard...</div>
+    </div>
+
+    <div class="dashboard-metrics">
+      <div class="dashboard-metric">
+        <span>Task XP</span>
+        <strong id="dashTotalTaskXp">0</strong>
+      </div>
+      <div class="dashboard-metric">
+        <span>Tasks Done</span>
+        <strong id="dashTotalTasksDone">0</strong>
+      </div>
+      <div class="dashboard-metric">
+        <span>Learning XP</span>
+        <strong id="dashTotalLearningXp">0</strong>
+      </div>
+      <div class="dashboard-metric">
+        <span>4DX Green</span>
+        <strong id="dashAvgFourdxGreen">0%</strong>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">
+        <span>Team Overview</span>
+        <small>Click row for detail</small>
+      </div>
+      <div class="dashboard-table-wrap">
+        <table class="dashboard-table">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Role</th>
+              <th>Task XP</th>
+              <th>Done</th>
+              <th>Progress</th>
+              <th>Blocked</th>
+              <th>Learning XP</th>
+              <th>Learning</th>
+              <th>4DX Green</th>
+              <th>Assigned</th>
+              <th>Delegated</th>
+            </tr>
+          </thead>
+          <tbody id="dashboardTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">
+        <span id="dashboardDetailTitle">User Detail</span>
+        <small id="dashboardDetailMeta">Select a user</small>
+      </div>
+      <div id="dashboardDetailBody" class="dashboard-detail-empty">
+        Select a user row to inspect task, learning, and 4DX activity.
+      </div>
+    </div>
+
+    <div class="card superuser-only-card">
+      <div class="section-title">
+        <span>One-Time Google Sheet Import</span>
+        <small>Legacy summaries only</small>
+      </div>
+      <div class="grid-2-equal">
+        <div>
+          <label>Task/Learning CSV</label>
+          <textarea id="legacyTaskLearningCsv" rows="6" placeholder="Paste CSV header + rows from the old Task/Learning sheet"></textarea>
+          <button id="importTaskLearningCsvBtn" type="button" class="btn-ghost" style="margin-top:8px;">Import Task/Learning Summary</button>
+        </div>
+        <div>
+          <label>4DX CSV</label>
+          <textarea id="legacyFourdxCsv" rows="6" placeholder="Paste CSV header + rows from the old 4DX sheet"></textarea>
+          <button id="importFourdxCsvBtn" type="button" class="btn-ghost" style="margin-top:8px;">Import 4DX Summary</button>
+        </div>
+      </div>
+      <div id="legacyImportStatusText" class="dashboard-status">
+        Paste CSV exports here after verifying the headers. Imported rows are deduplicated by row hash.
+      </div>
+    </div>
+  </section>
+
   <!-- ===== TAB SETTINGS ===== -->
     <!-- ===== TAB SETTINGS ===== -->
   <section id="settingsTab" class="tab-content hidden">
     <div class="card">
       <div class="section-title">
         <span>Profile</span>
+        <small id="profileRoleText">regular_user</small>
       </div>
       <div class="grid-2-equal">
         <div>
@@ -433,7 +602,60 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card admin-only-card">
+      <div class="section-title">
+        <span>Users & Migration</span>
+        <small>Supabase v2</small>
+      </div>
+      <div class="grid-2-equal" style="align-items:flex-end;">
+        <div>
+          <label>Assignable Users</label>
+          <select id="settingsAssignableUsers"></select>
+          <div style="font-size:11px;color:var(--text-light);margin-top:2px;">
+            User yang muncul mengikuti RLS Supabase: diri sendiri, team admin, atau semua untuk superuser.
+          </div>
+        </div>
+        <div>
+          <label>Set Role</label>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;">
+            <select id="settingsRoleInput">
+              <option value="regular_user">regular_user</option>
+              <option value="admin">admin</option>
+              <option value="superuser">superuser</option>
+            </select>
+            <button id="saveUserRoleBtn" type="button" class="btn-ghost">Save</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-light);margin-top:2px;">
+            Hanya superuser yang bisa mengubah role.
+          </div>
+        </div>
+      </div>
+      <div class="grid-2-equal" style="align-items:flex-end;margin-top:10px;">
+        <div>
+          <label>Manager/Admin</label>
+          <select id="settingsManagerInput">
+            <option value="">No manager</option>
+          </select>
+          <div style="font-size:11px;color:var(--text-light);margin-top:2px;">
+            User akan terlihat di dashboard admin yang dipilih.
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-light);">
+          Untuk admin: assigned task hanya valid ke user yang manager-nya adalah admin tersebut.
+        </div>
+      </div>
+      <div class="grid-2-equal" style="align-items:flex-end;margin-top:10px;">
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <button id="importLegacyBtn" type="button" class="btn-ghost">Import local data to this account</button>
+          <div id="migrationStatusText" style="font-size:11px;color:var(--text-light);">
+            Gunakan sekali jika browser ini punya data HoHo v1 di localStorage.
+          </div>
+        </div>
+        <div id="roleSaveStatusText" style="font-size:11px;color:var(--text-light);"></div>
+      </div>
+    </div>
+
+    <div class="card admin-only-card">
       <div class="section-title">
         <span>Monthly Report</span>
         <small>A4 PDF • summary-only • file size kecil</small>
@@ -456,7 +678,7 @@
     </div>
 
     <!-- NEW: Weekly Sync Card -->
-    <div class="card">
+    <div class="card admin-only-card">
       <div class="section-title">
         <span>Weekly Sync to Google Sheet</span>
         <small>Send last 7 days summary to central Sheet</small>
@@ -483,6 +705,17 @@
 <img id="hohoLearningFloat" class="hoho-float hidden" src="hoho-book.png" alt="Ho-Ho Learning" />
 
 <!-- app scripts -->
+<script src="assets/js/config/env.js"></script>
+<script src="assets/js/services/supabaseClient.js"></script>
+<script src="assets/js/services/authService.js"></script>
+<script src="assets/js/services/profileService.js"></script>
+<script src="assets/js/services/scoringService.js"></script>
+<script src="assets/js/services/taskService.js"></script>
+<script src="assets/js/services/learningService.js"></script>
+<script src="assets/js/services/fourdxService.js"></script>
+<script src="assets/js/services/dashboardService.js"></script>
+<script src="assets/js/services/migrationService.js"></script>
+<script src="assets/js/services/cloudService.js"></script>
 <script src="assets/js/core/state.js"></script> <!-- nanti isi state -->
 <script src="assets/js/main.js"></script>
 
