@@ -69,10 +69,23 @@
     }, 650);
   }
 
+  function wait(ms) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  async function waitForSaveSlot() {
+    let attempts = 0;
+    while (isSaving && attempts < 40) {
+      await wait(100);
+      attempts++;
+    }
+    if (isSaving) throw new Error("Cloud sync masih berjalan. Coba import ulang beberapa detik lagi.");
+  }
+
   async function saveNow(userId) {
     const activeUserId = userId || (currentUser && currentUser.id);
     if (!configured() || !activeUserId) return;
-    if (isSaving) return;
+    await waitForSaveSlot();
 
     isSaving = true;
     try {
