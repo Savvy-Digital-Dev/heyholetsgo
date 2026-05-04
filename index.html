@@ -645,13 +645,26 @@
         </div>
       </div>
       <div class="grid-2-equal" style="align-items:flex-end;margin-top:10px;">
+        <div></div>
+        <div id="roleSaveStatusText" style="font-size:11px;color:var(--text-light);"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">
+        <span>Data Migration</span>
+        <small>HoHo v1 → v2</small>
+      </div>
+      <div class="grid-2-equal" style="align-items:flex-end;">
         <div style="display:flex;flex-direction:column;gap:6px;">
           <button id="importLegacyBtn" type="button" class="btn-ghost">Import local data to this account</button>
           <div id="migrationStatusText" style="font-size:11px;color:var(--text-light);">
             Gunakan sekali jika browser ini punya data HoHo v1 di localStorage.
           </div>
         </div>
-        <div id="roleSaveStatusText" style="font-size:11px;color:var(--text-light);"></div>
+        <div style="font-size:11px;color:var(--text-light);">
+          Import ini hanya membaca data lama dari browser yang sedang dipakai.
+        </div>
       </div>
     </div>
 
