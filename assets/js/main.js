@@ -2947,7 +2947,10 @@ function bindAppEventsOnce() {
       if (!ok) return;
       importLegacyBtn.disabled = true;
       try {
+        if (migrationStatusText) migrationStatusText.textContent = "Importing local data to Supabase...";
         const result = await window.HoHoMigrationService.importLegacyState(currentUser.id);
+        await window.HoHoCloudService.hydrate({ user: currentUser });
+        populateAssignableUsers();
         if (migrationStatusText) migrationStatusText.textContent = result.message;
         renderAll();
       } catch (err) {
