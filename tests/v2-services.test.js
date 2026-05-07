@@ -134,3 +134,41 @@ test('active task list dedupes repeated open tasks while keeping original refere
   active[0].status = 'done';
   assert.equal(context.appState.tasks['2026-05-01'][0].status, 'done');
 });
+
+test('bulk delete candidates expand selected active task to duplicate group', () => {
+  const functionNames = [
+    'allTasksList',
+    'normalizeTaskDedupeValue',
+    'activeTaskDedupeKey',
+    'compareTaskAge',
+    'activeTasksList',
+    'taskRemoteId',
+    'taskSelectionKey',
+    'activeDuplicateGroupTasks',
+    'uniqueTasksBySelectionKey'
+  ];
+  const context = {
+    appState: {
+      tasks: {
+        '2026-05-01': [
+          { id: 'old', ownerId: 'u1', source: 'self', name: 'Follow up client', effort: 2, status: 'progress', createdAt: '2026-05-01T01:00:00Z' }
+        ],
+        '2026-05-02': [
+          { id: 'new', ownerId: 'u1', source: 'self', name: 'follow up client', effort: 2, status: 'none', createdAt: '2026-05-02T01:00:00Z' },
+          { id: 'other', ownerId: 'u1', source: 'self', name: 'Different task', effort: 2, status: 'none', createdAt: '2026-05-02T02:00:00Z' }
+        ]
+      }
+    }
+  };
+
+  vm.createContext(context);
+  functionNames.forEach((name) => {
+    vm.runInContext(`${extractFunctionSource('assets/js/main.js', name)}; this.${name} = ${name};`, context);
+  });
+
+  const active = context.activeTasksList();
+  const selected = active.filter((task) => task.id === 'old');
+  const candidates = context.uniqueTasksBySelectionKey(context.activeDuplicateGroupTasks(selected));
+
+  assert.equal(JSON.stringify(candidates.map((task) => task.id).sort()), JSON.stringify(['new', 'old']));
+});

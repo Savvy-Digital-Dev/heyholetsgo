@@ -348,6 +348,27 @@
     .status-pill.active-blocked { background: #fca5a5; }
     .status-pill.active-none { background: #e5e7eb; }
 
+    .task-bulk-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 9px;
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+      background: var(--bg-alt);
+      font-size: 12px;
+    }
+    .task-select-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-weight: 700;
+    }
+    .task-selection-count {
+      color: var(--text-light);
+      margin-right: auto;
+    }
+
     .deadline-chip {
       border: 1px solid var(--border);
       background: var(--bg);

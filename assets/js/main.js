@@ -11,6 +11,7 @@ window.LEARNING_XP_PER_EFFORT = LEARNING_XP_PER_EFFORT;
 
 let dopamineChart, learningChart, monthlyChart;
 let dashboardSort = { key: "totalXp", direction: "desc" };
+const selectedTaskKeys = new Set();
 
 function formatShortDate(dateStr) {
   const d = new Date(dateStr + "T00:00:00");
@@ -297,6 +298,25 @@ function taskRemoteId(task){
   return task && (task.remoteId || (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i.test(task.id || "") ? task.id : ""));
 }
 
+function taskSelectionKey(task){
+  return taskRemoteId(task) || `${task._dateKey || task.taskDate || task.date || ""}:${task.id || task.name || ""}`;
+}
+
+function activeDuplicateGroupTasks(selectedTasks){
+  const selectedGroups = new Set((selectedTasks || []).map(activeTaskDedupeKey));
+  return allTasksList().filter((task) =>
+    task.status !== "done" && selectedGroups.has(activeTaskDedupeKey(task))
+  );
+}
+
+function uniqueTasksBySelectionKey(tasks){
+  const byKey = {};
+  (tasks || []).forEach((task) => {
+    byKey[taskSelectionKey(task)] = task;
+  });
+  return Object.values(byKey);
+}
+
 function taskDailyUpdateFor(task, dateKey){
   const remoteId = taskRemoteId(task);
   if (!remoteId) return null;
@@ -373,6 +393,10 @@ function computeTaskStatsForDate(dateKey){
 function renderTasksForToday(){
   const key = getTodayKey();
   const tasks = activeTasksList();
+  const visibleKeys = new Set(tasks.map(taskSelectionKey));
+  Array.from(selectedTaskKeys).forEach((selectionKey) => {
+    if (!visibleKeys.has(selectionKey)) selectedTaskKeys.delete(selectionKey);
+  });
   const stats = computeTaskStatsForDate(key);
 
   xpTodayText.textContent = stats.xp + " XP";
@@ -382,6 +406,70 @@ function renderTasksForToday(){
   dopaminePercentText.textContent = stats.percent + "%";
 
   taskListEl.innerHTML = "";
+  const toolbar = document.createElement("div");
+  toolbar.className = "task-bulk-toolbar";
+  const selectAllLabel = document.createElement("label");
+  selectAllLabel.className = "task-select-label";
+  const selectAllInput = document.createElement("input");
+  selectAllInput.type = "checkbox";
+  selectAllInput.checked = Boolean(tasks.length) && tasks.every((task) => selectedTaskKeys.has(taskSelectionKey(task)));
+  selectAllInput.disabled = !tasks.length;
+  selectAllInput.addEventListener("change", () => {
+    if (selectAllInput.checked) {
+      tasks.forEach((task) => selectedTaskKeys.add(taskSelectionKey(task)));
+    } else {
+      tasks.forEach((task) => selectedTaskKeys.delete(taskSelectionKey(task)));
+    }
+    renderTasksForToday();
+  });
+  selectAllLabel.appendChild(selectAllInput);
+  selectAllLabel.appendChild(document.createTextNode(" Select all"));
+
+  const selectedCount = tasks.filter((task) => selectedTaskKeys.has(taskSelectionKey(task))).length;
+  const selectedText = document.createElement("span");
+  selectedText.className = "task-selection-count";
+  selectedText.textContent = `${selectedCount} selected`;
+
+  const bulkDeleteBtn = document.createElement("button");
+  bulkDeleteBtn.type = "button";
+  bulkDeleteBtn.className = "btn-ghost";
+  bulkDeleteBtn.textContent = "Delete selected";
+  bulkDeleteBtn.disabled = selectedCount === 0;
+  bulkDeleteBtn.addEventListener("click", async () => {
+    const selectedVisibleTasks = tasks.filter((task) => selectedTaskKeys.has(taskSelectionKey(task)));
+    const deleteTargets = uniqueTasksBySelectionKey(activeDuplicateGroupTasks(selectedVisibleTasks));
+    if (!deleteTargets.length) return;
+    const ok = confirm(`Delete ${deleteTargets.length} selected task(s)? This includes repeated duplicate entries.`);
+    if (!ok) return;
+    bulkDeleteBtn.disabled = true;
+    bulkDeleteBtn.textContent = "Deleting...";
+    try {
+      for (const task of deleteTargets) {
+        const remoteId = taskRemoteId(task);
+        if (remoteId && window.HoHoTaskService) await window.HoHoTaskService.deleteTask(remoteId);
+      }
+      deleteTargets.forEach((task) => {
+        const taskDate = task._dateKey || task.taskDate || task.date || key;
+        appState.tasks[taskDate] = (appState.tasks[taskDate] || []).filter((item) => taskSelectionKey(item) !== taskSelectionKey(task));
+      });
+      selectedTaskKeys.clear();
+      saveState();
+      renderTasksForToday();
+      renderTaskHeatmap();
+      renderDopamineRadial();
+      renderMonthlyDopamineChart();
+      updateHoHoMood();
+    } catch (err) {
+      alert("Gagal bulk delete task: " + (err.message || err));
+      renderTasksForToday();
+    }
+  });
+
+  toolbar.appendChild(selectAllLabel);
+  toolbar.appendChild(selectedText);
+  toolbar.appendChild(bulkDeleteBtn);
+  taskListEl.appendChild(toolbar);
+
   if(!tasks.length){
     const empty = document.createElement("div");
     empty.style.fontSize="12px";
@@ -392,12 +480,23 @@ function renderTasksForToday(){
     tasks.forEach(task=>{
       const row = document.createElement("div");
       row.style.display="grid";
-      row.style.gridTemplateColumns="minmax(0,2.2fr) minmax(0,1fr) minmax(0,1.2fr) minmax(0,1.8fr) auto";
+      row.style.gridTemplateColumns="auto minmax(0,2.2fr) minmax(0,1fr) minmax(0,1.2fr) minmax(0,1.8fr) auto";
       row.style.gap="8px";
       row.style.alignItems="center";
       row.style.padding="7px 9px";
       row.style.borderRadius="10px";
       row.style.background="var(--bg-alt)";
+
+      const selectCell = document.createElement("div");
+      const selectInput = document.createElement("input");
+      selectInput.type = "checkbox";
+      selectInput.checked = selectedTaskKeys.has(taskSelectionKey(task));
+      selectInput.addEventListener("change", () => {
+        if (selectInput.checked) selectedTaskKeys.add(taskSelectionKey(task));
+        else selectedTaskKeys.delete(taskSelectionKey(task));
+        renderTasksForToday();
+      });
+      selectCell.appendChild(selectInput);
 
       const nameCell = document.createElement("div");
       const nameSpan = document.createElement("span");
@@ -580,6 +679,7 @@ function renderTasksForToday(){
       });
       actionsCell.appendChild(delBtn);
 
+      row.appendChild(selectCell);
       row.appendChild(nameCell);
       row.appendChild(effortCell);
       row.appendChild(deadlineCell);
