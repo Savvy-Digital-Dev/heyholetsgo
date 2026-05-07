@@ -39,12 +39,28 @@ create table if not exists public.tasks (
   status text not null default 'none',
   task_date date not null,
   source text not null default 'self',
+  deadline_at timestamptz,
   completed_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint tasks_effort_check check (effort in (1, 2, 3)),
   constraint tasks_status_check check (status in ('none', 'progress', 'done', 'blocked')),
-  constraint tasks_source_check check (source in ('self', 'assigned', 'delegated'))
+  constraint tasks_source_check check (source in ('self', 'assigned', 'delegated')),
+  constraint tasks_owner_client_id_unique unique (owner_id, client_id)
+);
+
+create table if not exists public.task_daily_updates (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references public.tasks(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  update_date date not null,
+  status text not null,
+  xp int not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint task_daily_updates_status_check check (status in ('progress', 'done')),
+  constraint task_daily_updates_xp_check check (xp >= 0),
+  constraint task_daily_updates_unique unique (task_id, user_id, update_date)
 );
 
 create table if not exists public.learning_entries (
@@ -159,6 +175,9 @@ create table if not exists public.legacy_fourdx_weekly_summaries (
 create index if not exists idx_profiles_manager_id on public.profiles(manager_id);
 create index if not exists idx_tasks_owner_date on public.tasks(owner_id, task_date);
 create index if not exists idx_tasks_created_by on public.tasks(created_by);
+create index if not exists idx_tasks_owner_status_deadline on public.tasks(owner_id, status, deadline_at);
+create index if not exists idx_task_daily_updates_user_date on public.task_daily_updates(user_id, update_date);
+create index if not exists idx_task_daily_updates_task_date on public.task_daily_updates(task_id, update_date);
 create index if not exists idx_learning_user_date on public.learning_entries(user_id, entry_date);
 create index if not exists idx_fourdx_goals_user on public.fourdx_goals(user_id);
 create index if not exists idx_fourdx_checkins_user_date on public.fourdx_checkins(user_id, checkin_date);
@@ -184,6 +203,10 @@ for each row execute function public.set_updated_at();
 
 drop trigger if exists set_tasks_updated_at on public.tasks;
 create trigger set_tasks_updated_at before update on public.tasks
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_task_daily_updates_updated_at on public.task_daily_updates;
+create trigger set_task_daily_updates_updated_at before update on public.task_daily_updates
 for each row execute function public.set_updated_at();
 
 drop trigger if exists set_learning_entries_updated_at on public.learning_entries;
@@ -306,6 +329,7 @@ for each row execute function public.protect_profile_privileged_fields();
 alter table public.profiles enable row level security;
 alter table public.role_permissions enable row level security;
 alter table public.tasks enable row level security;
+alter table public.task_daily_updates enable row level security;
 alter table public.learning_entries enable row level security;
 alter table public.fourdx_goals enable row level security;
 alter table public.fourdx_lead_measures enable row level security;
@@ -387,6 +411,37 @@ create policy "tasks_delete_allowed"
 on public.tasks for delete
 to authenticated
 using (owner_id = auth.uid() or created_by = auth.uid() or public.can_manage_user(owner_id));
+
+drop policy if exists "task_daily_updates_select_visible" on public.task_daily_updates;
+create policy "task_daily_updates_select_visible"
+on public.task_daily_updates for select
+to authenticated
+using (user_id = auth.uid() or public.can_manage_user(user_id));
+
+drop policy if exists "task_daily_updates_insert_own" on public.task_daily_updates;
+create policy "task_daily_updates_insert_own"
+on public.task_daily_updates for insert
+to authenticated
+with check (
+  user_id = auth.uid()
+  and exists (
+    select 1 from public.tasks t
+    where t.id = task_id and t.owner_id = auth.uid()
+  )
+);
+
+drop policy if exists "task_daily_updates_update_own" on public.task_daily_updates;
+create policy "task_daily_updates_update_own"
+on public.task_daily_updates for update
+to authenticated
+using (user_id = auth.uid())
+with check (
+  user_id = auth.uid()
+  and exists (
+    select 1 from public.tasks t
+    where t.id = task_id and t.owner_id = auth.uid()
+  )
+);
 
 drop policy if exists "learning_entries_access" on public.learning_entries;
 create policy "learning_entries_access"

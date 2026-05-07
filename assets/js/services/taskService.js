@@ -24,6 +24,7 @@
       status: task.status || "none",
       task_date: task.date || task.task_date || fallbackDate,
       source: task.source || (ownerId === currentUserId ? "self" : "assigned"),
+      deadline_at: task.deadlineAt || task.deadline_at || null,
       completed_at: task.completedAt || task.completed_at || null,
       created_at: task.createdAt || task.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -42,7 +43,10 @@
       effort: row.effort,
       status: row.status,
       source: row.source,
+      deadlineAt: row.deadline_at || null,
       taskDate: row.task_date,
+      date: row.task_date,
+      completedAt: row.completed_at || null,
       createdAt: row.created_at
     };
   }
@@ -80,11 +84,11 @@
       });
     });
 
-    const { error: deleteError } = await sb.from("tasks").delete().eq("owner_id", userId);
-    if (deleteError) throw deleteError;
     if (!rows.length) return;
 
-    const { error } = await sb.from("tasks").insert(rows);
+    const { error } = await sb
+      .from("tasks")
+      .upsert(rows, { onConflict: "owner_id,client_id" });
     if (error) throw error;
   }
 
@@ -97,11 +101,91 @@
     return fromDbTask(data);
   }
 
+  async function updateTask(taskId, patch) {
+    const sb = client();
+    if (!sb || !taskId) return null;
+    const dbPatch = Object.assign({}, patch, { updated_at: new Date().toISOString() });
+    if (patch.deadlineAt !== undefined) {
+      dbPatch.deadline_at = patch.deadlineAt || null;
+      delete dbPatch.deadlineAt;
+    }
+    if (patch.completedAt !== undefined) {
+      dbPatch.completed_at = patch.completedAt || null;
+      delete dbPatch.completedAt;
+    }
+    const { data, error } = await sb
+      .from("tasks")
+      .update(dbPatch)
+      .eq("id", taskId)
+      .select("*")
+      .single();
+    if (error) throw error;
+    return fromDbTask(data);
+  }
+
+  async function deleteTask(taskId) {
+    const sb = client();
+    if (!sb || !taskId) return;
+    const { error } = await sb.from("tasks").delete().eq("id", taskId);
+    if (error) throw error;
+  }
+
+  function taskXpForStatus(effort, status) {
+    const base = { 1: 10, 2: 20, 3: 30 }[Number(effort)] || 0;
+    if (status === "done") return base;
+    if (status === "progress") return Math.round(base * 0.2);
+    return 0;
+  }
+
+  async function upsertDailyUpdate(task, userId, status, updateDate) {
+    const sb = client();
+    const taskId = task && (task.remoteId || task.id);
+    if (!sb || !taskId || !userId || !["progress", "done"].includes(status)) return null;
+    const row = {
+      task_id: taskId,
+      user_id: userId,
+      update_date: updateDate,
+      status,
+      xp: taskXpForStatus(task.effort, status),
+      updated_at: new Date().toISOString()
+    };
+    const { data, error } = await sb
+      .from("task_daily_updates")
+      .upsert(row, { onConflict: "task_id,user_id,update_date" })
+      .select("*")
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  async function loadMyDailyUpdates(userId, startDate, endDate) {
+    const sb = client();
+    if (!sb || !userId) return [];
+    let query = sb
+      .from("task_daily_updates")
+      .select("*")
+      .eq("user_id", userId)
+      .order("update_date", { ascending: true });
+    if (startDate) query = query.gte("update_date", startDate);
+    if (endDate) query = query.lte("update_date", endDate);
+    const { data, error } = await query;
+    if (error) {
+      if (error.code === "42P01" || error.code === "42703") return [];
+      throw error;
+    }
+    return data || [];
+  }
+
   window.HoHoTaskService = {
     loadMyTasks,
     replaceMyTasks,
     createTask,
+    updateTask,
+    deleteTask,
+    upsertDailyUpdate,
+    loadMyDailyUpdates,
     fromDbTask,
-    toDbTask
+    toDbTask,
+    taskXpForStatus
   };
 })();

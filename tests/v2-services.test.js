@@ -45,6 +45,24 @@ test('task service maps app tasks to Supabase rows with safe user ids', () => {
   assert.equal(row.task_date, '2026-05-03');
 });
 
+test('task service maps deadline timestamp and daily XP rules', () => {
+  const win = runBrowserScript('assets/js/services/taskService.js');
+  const userId = '11111111-1111-4111-8111-111111111111';
+
+  const row = win.HoHoTaskService.toDbTask({
+    id: 'deadline-id',
+    name: 'Launch review',
+    effort: 3,
+    status: 'none',
+    deadlineAt: '2026-05-07T08:30:00.000Z'
+  }, '2026-05-07', userId);
+
+  assert.equal(row.deadline_at, '2026-05-07T08:30:00.000Z');
+  assert.equal(win.HoHoTaskService.taskXpForStatus(3, 'progress'), 6);
+  assert.equal(win.HoHoTaskService.taskXpForStatus(3, 'done'), 30);
+  assert.equal(win.HoHoTaskService.taskXpForStatus(3, 'blocked'), 0);
+});
+
 test('dashboard CSV parser handles quoted cells and normalized headers', () => {
   const win = runBrowserScript('assets/js/services/dashboardService.js');
   const rows = win.HoHoDashboardService.parseCsv('User Name,Task XP,Learning XP\n"Anissa, Admin",20,10\n');

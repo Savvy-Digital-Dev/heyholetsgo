@@ -116,10 +116,23 @@
     const { data, error } = await sb
       .from("tasks")
       .select("*")
-      .gte("task_date", startDate)
-      .lte("task_date", endDate)
       .order("task_date", { ascending: false });
     if (error) throw error;
+    return data || [];
+  }
+
+  async function loadTeamTaskDailyUpdates(startDate, endDate) {
+    const sb = client();
+    if (!sb) return [];
+    const { data, error } = await sb
+      .from("task_daily_updates")
+      .select("*")
+      .gte("update_date", startDate)
+      .lte("update_date", endDate);
+    if (error) {
+      if (error.code === "42P01" || error.code === "42703") return [];
+      throw error;
+    }
     return data || [];
   }
 
@@ -166,8 +179,17 @@
     };
   }
 
-  function buildSummary({ profiles, tasks, learning, fourdx, legacyTaskLearning, legacyFourdx }) {
+  function inDateRange(dateValue, startDate, endDate) {
+    if (!dateValue) return false;
+    return dateValue >= startDate && dateValue <= endDate;
+  }
+
+  function buildSummary({ profiles, tasks, taskDailyUpdates, learning, fourdx, legacyTaskLearning, legacyFourdx, startDate, endDate }) {
     const byUser = {};
+    const tasksById = {};
+    (tasks || []).forEach((task) => {
+      tasksById[task.id] = task;
+    });
     profiles.forEach((profile) => {
       byUser[profile.id] = {
         profile,
@@ -186,6 +208,7 @@
         legacyFourdxGreen: 0,
         legacyFourdxRows: 0,
         tasks: [],
+        pendingTasks: [],
         learning: []
       };
     });
@@ -193,13 +216,32 @@
     tasks.forEach((task) => {
       const row = byUser[task.owner_id];
       if (!row) return;
+      if (task.status !== "done") row.pendingTasks.push(task);
+      if (inDateRange(task.task_date, startDate, endDate)) {
+        if (task.source === "assigned") row.assigned++;
+        if (task.source === "delegated") row.delegated++;
+        if (task.status === "blocked") row.blocked++;
+      }
+      row.tasks.push(task);
+    });
+
+    const hasDailyUpdatesByTask = {};
+    taskDailyUpdates.forEach((update) => {
+      const task = tasksById[update.task_id];
+      const row = byUser[update.user_id];
+      if (!row || !task) return;
+      hasDailyUpdatesByTask[update.task_id] = true;
+      row.taskXp += Number(update.xp) || 0;
+      if (update.status === "done") row.done++;
+      if (update.status === "progress") row.progress++;
+    });
+
+    tasks.forEach((task) => {
+      const row = byUser[task.owner_id];
+      if (!row || hasDailyUpdatesByTask[task.id] || !inDateRange(task.task_date, startDate, endDate)) return;
       row.taskXp += taskXp(task);
       if (task.status === "done") row.done++;
       if (task.status === "progress") row.progress++;
-      if (task.status === "blocked") row.blocked++;
-      if (task.source === "assigned") row.assigned++;
-      if (task.source === "delegated") row.delegated++;
-      row.tasks.push(task);
     });
 
     learning.forEach((entry) => {
@@ -245,6 +287,7 @@
         ...row,
         totalTaskXp: row.taskXp + row.legacyTaskXp,
         totalLearningXp: row.learningXp + row.legacyLearningXp,
+        totalXp: row.taskXp + row.legacyTaskXp + row.learningXp + row.legacyLearningXp,
         fourdxGreenPct: row.fourdxExpected ? detailedGreenPct : legacyGreenPct
       };
     });
@@ -252,8 +295,9 @@
 
   async function loadDashboardData({ startDate, endDate, currentProfile }) {
     const profiles = await loadVisibleProfiles(currentProfile);
-    const [tasks, learning, fourdx, legacy] = await Promise.all([
+    const [tasks, taskDailyUpdates, learning, fourdx, legacy] = await Promise.all([
       loadTeamTasks(startDate, endDate),
+      loadTeamTaskDailyUpdates(startDate, endDate),
       loadTeamLearning(startDate, endDate),
       loadTeamFourdxSummary(startDate, endDate),
       loadLegacySummaries(startDate, endDate)
@@ -262,10 +306,13 @@
     return buildSummary({
       profiles,
       tasks,
+      taskDailyUpdates,
       learning,
       fourdx,
       legacyTaskLearning: legacy.taskLearning,
-      legacyFourdx: legacy.fourdx
+      legacyFourdx: legacy.fourdx,
+      startDate,
+      endDate
     });
   }
 
@@ -352,6 +399,7 @@
   window.HoHoDashboardService = {
     loadVisibleProfiles,
     loadTeamTasks,
+    loadTeamTaskDailyUpdates,
     loadTeamLearning,
     loadTeamFourdxSummary,
     loadDashboardData,

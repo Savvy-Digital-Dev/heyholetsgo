@@ -1,9 +1,10 @@
 (function () {
   const LEGACY_STORAGE_KEY = "hhlg_v136_state";
+  const LEGACY_BACKUP_KEY = "hhlg_v136_state_backup_before_v2";
 
   function readLegacyState() {
     try {
-      const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+      const raw = localStorage.getItem(LEGACY_BACKUP_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
       return raw ? JSON.parse(raw) : null;
     } catch (err) {
       console.error("Failed to read legacy state", err);
@@ -65,7 +66,12 @@
 
   async function importLegacyState(userId) {
     const legacy = readLegacyState();
-    if (!legacy) return { imported: false, message: "Tidak ada data localStorage lama." };
+    if (!legacy) {
+      return {
+        imported: false,
+        message: "Tidak ada data localStorage lama. Kalau user sudah sempat pakai v2 sebelum import, coba cek device/browser lain yang pernah dipakai untuk HoHo v1."
+      };
+    }
 
     const summary = summarizeLegacyState(legacy);
     const totalRows = summary.tasks + summary.learning + summary.leadMeasures + summary.fourdxCheckins + summary.offdays;

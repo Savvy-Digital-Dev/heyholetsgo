@@ -31,13 +31,21 @@
       currentProfile = await window.HoHoProfileService.ensureCurrentProfile(session.user);
       assignableProfiles = await window.HoHoProfileService.listAssignableProfiles();
 
-      const [tasks, learning, fourdx] = await Promise.all([
+      const today = new Date();
+      const start = new Date(today);
+      start.setDate(today.getDate() - 210);
+      const startDate = start.toISOString().slice(0, 10);
+      const endDate = new Date(today.getTime() + 86400000).toISOString().slice(0, 10);
+
+      const [tasks, taskDailyUpdates, learning, fourdx] = await Promise.all([
         window.HoHoTaskService.loadMyTasks(session.user.id),
+        window.HoHoTaskService.loadMyDailyUpdates(session.user.id, startDate, endDate),
         window.HoHoLearningService.loadMyLearning(session.user.id),
         window.HoHoFourdxService.loadMyFourdx(session.user.id)
       ]);
 
       appState.tasks = tasks || {};
+      appState.taskDailyUpdates = taskDailyUpdates || [];
       appState.learning = learning || {};
       appState.fourdx = fourdx || appState.fourdx;
       appState.user = {
