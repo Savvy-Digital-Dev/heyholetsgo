@@ -214,6 +214,23 @@
       margin: 0 0 8px;
       font-size: 13px;
     }
+    .dashboard-effort-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .dashboard-effort-control select {
+      width: auto;
+      min-width: 86px;
+      padding: 4px 7px;
+      font-size: 11px;
+    }
+    .dashboard-effort-control button {
+      padding: 4px 8px;
+      font-size: 11px;
+    }
 
     header {
       display: flex;

@@ -88,6 +88,41 @@ test('task service maps deadline timestamp and daily XP rules', () => {
   assert.equal(win.HoHoTaskService.taskXpForStatus(3, 'blocked'), 0);
 });
 
+test('task service effort update calls admin recalculation RPC', async () => {
+  const calls = [];
+  const win = runBrowserScript('assets/js/services/taskService.js', {
+    window: {
+      HoHoSupabase: {
+        client: {
+          rpc: async (name, payload) => {
+            calls.push({ name, payload });
+            return {
+              data: {
+                id: payload.target_task_id,
+                client_id: 'client-1',
+                owner_id: '11111111-1111-4111-8111-111111111111',
+                created_by: '11111111-1111-4111-8111-111111111111',
+                title: 'Corrected effort task',
+                effort: payload.new_effort,
+                status: 'progress',
+                task_date: '2026-05-07',
+                source: 'self'
+              },
+              error: null
+            };
+          }
+        }
+      }
+    }
+  });
+
+  const updated = await win.HoHoTaskService.updateTaskEffort('22222222-2222-4222-8222-222222222222', 1);
+
+  assert.equal(calls[0].name, 'admin_update_task_effort');
+  assert.equal(calls[0].payload.new_effort, 1);
+  assert.equal(updated.effort, 1);
+});
+
 test('dashboard CSV parser handles quoted cells and normalized headers', () => {
   const win = runBrowserScript('assets/js/services/dashboardService.js');
   const rows = win.HoHoDashboardService.parseCsv('User Name,Task XP,Learning XP\n"Anissa, Admin",20,10\n');

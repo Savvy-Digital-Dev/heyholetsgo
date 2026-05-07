@@ -130,6 +130,17 @@
     if (error) throw error;
   }
 
+  async function updateTaskEffort(taskId, effort) {
+    const sb = client();
+    if (!sb || !taskId) return null;
+    const { data, error } = await sb.rpc("admin_update_task_effort", {
+      target_task_id: taskId,
+      new_effort: Number(effort)
+    });
+    if (error) throw error;
+    return fromDbTask(data);
+  }
+
   function taskXpForStatus(effort, status) {
     const base = { 1: 10, 2: 20, 3: 30 }[Number(effort)] || 0;
     if (status === "done") return base;
@@ -181,6 +192,7 @@
     replaceMyTasks,
     createTask,
     updateTask,
+    updateTaskEffort,
     deleteTask,
     upsertDailyUpdate,
     loadMyDailyUpdates,

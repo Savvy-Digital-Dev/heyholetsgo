@@ -3136,12 +3136,22 @@ function renderDashboardDetail(row) {
   dashboardDetailTitle.textContent = row.profile.name || row.profile.email || "User Detail";
   dashboardDetailMeta.textContent = `${row.profile.role || "regular_user"} • ${row.profile.email || "-"}`;
 
+  const taskEffortControl = (task) => `
+    <span class="dashboard-effort-control" data-dashboard-task-effort="${task.id}">
+      <select data-effort-select="${task.id}">
+        <option value="1" ${Number(task.effort) === 1 ? "selected" : ""}>Effort 1</option>
+        <option value="2" ${Number(task.effort) === 2 ? "selected" : ""}>Effort 2</option>
+        <option value="3" ${Number(task.effort) === 3 ? "selected" : ""}>Effort 3</option>
+      </select>
+      <button type="button" class="btn-ghost" data-effort-save="${task.id}">Save</button>
+    </span>
+  `;
   const recentTasks = row.tasks.slice(0, 8).map((task) =>
-    `<li>${task.task_date}: <b>${task.title}</b> (${task.status}, effort ${task.effort}, ${task.source}${task.deadline_at ? ", deadline " + formatDeadline(task.deadline_at) : ""})</li>`
+    `<li>${task.task_date}: <b>${task.title}</b> (${task.status}, ${task.source}${task.deadline_at ? ", deadline " + formatDeadline(task.deadline_at) : ""}) ${taskEffortControl(task)}</li>`
   ).join("");
   const pendingTasks = (row.pendingTasks || []).slice(0, 10).map((task) => {
     const due = task.deadline_at && new Date(task.deadline_at).getTime() <= Date.now() ? " - Overdue" : "";
-    return `<li><b>${task.title}</b> (${task.status}, effort ${task.effort}, ${task.source})${task.deadline_at ? " - deadline " + formatDeadline(task.deadline_at) + due : " - no deadline"}</li>`;
+    return `<li><b>${task.title}</b> (${task.status}, ${task.source})${task.deadline_at ? " - deadline " + formatDeadline(task.deadline_at) + due : " - no deadline"} ${taskEffortControl(task)}</li>`;
   }).join("");
   const recentLearning = row.learning.slice(0, 8).map((entry) =>
     `<li>${entry.entry_date}: <b>${categoryLabel(entry.category)}</b>${entry.subskill ? " - " + entry.subskill : ""} (${entry.effort})</li>`
@@ -3173,6 +3183,24 @@ function renderDashboardDetail(row) {
       <div>Legacy learning XP: <b>${row.legacyLearningXp}</b></div>
     </div>
   `;
+
+  dashboardDetailBody.querySelectorAll("[data-effort-save]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const taskId = btn.getAttribute("data-effort-save");
+      const select = dashboardDetailBody.querySelector(`[data-effort-select="${taskId}"]`);
+      const effort = select ? Number(select.value) : 1;
+      btn.disabled = true;
+      btn.textContent = "Saving...";
+      try {
+        await window.HoHoTaskService.updateTaskEffort(taskId, effort);
+        await renderDashboard();
+      } catch (err) {
+        alert("Gagal update effort task: " + (err.message || err));
+        btn.disabled = false;
+        btn.textContent = "Save";
+      }
+    });
+  });
 }
 
 async function renderDashboard() {
