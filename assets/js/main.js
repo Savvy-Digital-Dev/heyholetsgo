@@ -237,14 +237,55 @@ tabButtons.forEach(btn=>{
 /* TASKS */
 function allTasksList(){
   return Object.keys(appState.tasks || {}).flatMap((dateKey) =>
-    (appState.tasks[dateKey] || []).map((task) => Object.assign({ taskDate: task.taskDate || task.date || dateKey, date: task.date || task.taskDate || dateKey }, task))
+    (appState.tasks[dateKey] || []).map((task) => {
+      task._dateKey = dateKey;
+      task.taskDate = task.taskDate || task.date || dateKey;
+      task.date = task.date || task.taskDate || dateKey;
+      return task;
+    })
   );
 }
 
+function normalizeTaskDedupeValue(value){
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function activeTaskDedupeKey(task){
+  return [
+    normalizeTaskDedupeValue(task.name || task.title),
+    task.ownerId || task.owner_id || "",
+    task.source || "self",
+    Number(task.effort) || 1
+  ].join("|");
+}
+
+function compareTaskAge(a, b){
+  const aDate = a.taskDate || a.date || a._dateKey || "";
+  const bDate = b.taskDate || b.date || b._dateKey || "";
+  if (aDate !== bDate) return String(aDate).localeCompare(String(bDate));
+  return String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
+}
+
 function activeTasksList(){
-  return allTasksList()
+  const byKey = {};
+  allTasksList()
     .filter((task) => task.status !== "done")
-    .sort((a, b) => {
+    .forEach((task) => {
+      const key = activeTaskDedupeKey(task);
+      if (!byKey[key]) {
+        byKey[key] = task;
+        task._hiddenDuplicateCount = 0;
+        return;
+      }
+      const current = byKey[key];
+      const winner = compareTaskAge(task, current) < 0 ? task : current;
+      const loser = winner === task ? current : task;
+      winner._hiddenDuplicateCount = (current._hiddenDuplicateCount || 0) + (task._hiddenDuplicateCount || 0) + 1;
+      loser._hiddenDuplicateCount = 0;
+      byKey[key] = winner;
+    });
+
+  return Object.values(byKey).sort((a, b) => {
       const aDeadline = a.deadlineAt || "9999-12-31T23:59:59Z";
       const bDeadline = b.deadlineAt || "9999-12-31T23:59:59Z";
       if (aDeadline !== bDeadline) return aDeadline.localeCompare(bDeadline);
@@ -393,6 +434,14 @@ function renderTasksForToday(){
         carryMeta.textContent = `Open since ${formatShortDate(task.taskDate)}`;
         nameCell.appendChild(carryMeta);
       }
+      if (task._hiddenDuplicateCount) {
+        const duplicateMeta = document.createElement("div");
+        duplicateMeta.style.fontSize = "10px";
+        duplicateMeta.style.color = "var(--text-light)";
+        duplicateMeta.style.marginTop = "2px";
+        duplicateMeta.textContent = `Merged from ${task._hiddenDuplicateCount + 1} repeated entries`;
+        nameCell.appendChild(duplicateMeta);
+      }
 
       const effortCell = document.createElement("div");
       effortCell.style.fontSize="12px";
@@ -512,7 +561,7 @@ function renderTasksForToday(){
       delBtn.style.background="#f97373";
       delBtn.addEventListener("click", async ()=>{
         if(confirm("Delete this task?")){
-          const taskDate = task.taskDate || task.date || key;
+          const taskDate = task._dateKey || task.taskDate || task.date || key;
           const remoteId = taskRemoteId(task);
           try {
             if (remoteId && window.HoHoTaskService) await window.HoHoTaskService.deleteTask(remoteId);

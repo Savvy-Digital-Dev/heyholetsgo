@@ -15,6 +15,31 @@ function runBrowserScript(filePath, extra = {}) {
   return context.window;
 }
 
+function extractFunctionSource(filePath, functionName) {
+  const source = fs.readFileSync(filePath, 'utf8');
+  const signature = `function ${functionName}(`;
+  const start = source.indexOf(signature);
+  if (start === -1) {
+    throw new Error(`Function ${functionName} not found in ${filePath}`);
+  }
+
+  let braceIndex = source.indexOf('{', start);
+  let depth = 0;
+  let end = braceIndex;
+
+  for (let i = braceIndex; i < source.length; i++) {
+    const ch = source[i];
+    if (ch === '{') depth += 1;
+    if (ch === '}') depth -= 1;
+    if (depth === 0) {
+      end = i;
+      break;
+    }
+  }
+
+  return source.slice(start, end + 1);
+}
+
 test('scoring service keeps HoHo v2 task and learning XP rules', () => {
   const win = runBrowserScript('assets/js/services/scoringService.js');
 
@@ -71,4 +96,41 @@ test('dashboard CSV parser handles quoted cells and normalized headers', () => {
   assert.equal(rows[0].user_name, 'Anissa, Admin');
   assert.equal(rows[0].task_xp, '20');
   assert.equal(rows[0].learning_xp, '10');
+});
+
+test('active task list dedupes repeated open tasks while keeping original references', () => {
+  const source = fs.readFileSync('assets/js/main.js', 'utf8');
+  const functionNames = [
+    'allTasksList',
+    'normalizeTaskDedupeValue',
+    'activeTaskDedupeKey',
+    'compareTaskAge',
+    'activeTasksList'
+  ];
+  const context = {
+    appState: {
+      tasks: {
+        '2026-05-01': [
+          { id: 'old', ownerId: 'u1', source: 'self', name: 'Follow up client', effort: 2, status: 'progress', createdAt: '2026-05-01T01:00:00Z' }
+        ],
+        '2026-05-02': [
+          { id: 'new', ownerId: 'u1', source: 'self', name: '  follow   up CLIENT  ', effort: 2, status: 'none', createdAt: '2026-05-02T01:00:00Z' },
+          { id: 'done', ownerId: 'u1', source: 'self', name: 'Done task', effort: 1, status: 'done', createdAt: '2026-05-02T02:00:00Z' }
+        ]
+      }
+    }
+  };
+
+  vm.createContext(context);
+  functionNames.forEach((name) => {
+    vm.runInContext(`${extractFunctionSource('assets/js/main.js', name)}; this.${name} = ${name};`, context);
+  });
+
+  const active = context.activeTasksList();
+
+  assert.equal(active.length, 1);
+  assert.equal(active[0].id, 'old');
+  assert.equal(active[0]._hiddenDuplicateCount, 1);
+  active[0].status = 'done';
+  assert.equal(context.appState.tasks['2026-05-01'][0].status, 'done');
 });
