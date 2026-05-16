@@ -140,7 +140,7 @@
     }
     .dashboard-metrics {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 12px;
       margin-bottom: 14px;
     }
@@ -184,6 +184,10 @@
       color: var(--text-light);
       font-weight: 800;
     }
+    .dashboard-table th[data-dashboard-sort]:hover {
+      color: var(--text);
+      background: #f3f4f6;
+    }
     .dashboard-table tbody tr {
       cursor: pointer;
     }
@@ -209,6 +213,23 @@
     .dashboard-detail-block h4 {
       margin: 0 0 8px;
       font-size: 13px;
+    }
+    .dashboard-effort-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .dashboard-effort-control select {
+      width: auto;
+      min-width: 86px;
+      padding: 4px 7px;
+      font-size: 11px;
+    }
+    .dashboard-effort-control button {
+      padding: 4px 8px;
+      font-size: 11px;
     }
 
     header {
@@ -343,6 +364,49 @@
     .status-pill.active-progress { background: #fde68a; }
     .status-pill.active-blocked { background: #fca5a5; }
     .status-pill.active-none { background: #e5e7eb; }
+
+    .task-bulk-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 9px;
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+      background: var(--bg-alt);
+      font-size: 12px;
+    }
+    .task-select-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-weight: 700;
+    }
+    .task-selection-count {
+      color: var(--text-light);
+      margin-right: auto;
+    }
+
+    .deadline-chip {
+      border: 1px solid var(--border);
+      background: var(--bg);
+      border-radius: 999px;
+      padding: 4px 8px;
+      color: var(--text);
+      font-size: 11px;
+      text-align: left;
+      cursor: pointer;
+      width: fit-content;
+      max-width: 100%;
+    }
+    .deadline-overdue {
+      width: fit-content;
+      border-radius: 999px;
+      background: #fee2e2;
+      color: #b91c1c;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 3px 7px;
+    }
 
     .heatmap {
       display: grid;

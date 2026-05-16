@@ -10,6 +10,8 @@ const SIX_MONTHS_IN_DAYS = 183;
 window.LEARNING_XP_PER_EFFORT = LEARNING_XP_PER_EFFORT;
 
 let dopamineChart, learningChart, monthlyChart;
+let dashboardSort = { key: "totalXp", direction: "desc" };
+const selectedTaskKeys = new Set();
 
 function formatShortDate(dateStr) {
   const d = new Date(dateStr + "T00:00:00");
@@ -94,6 +96,7 @@ const themeIconSpan = document.getElementById("themeIcon");
 
 const taskNameInput = document.getElementById("taskNameInput");
 const taskEffortInput = document.getElementById("taskEffortInput");
+const taskDeadlineInput = document.getElementById("taskDeadlineInput");
 const taskOwnerInput = document.getElementById("taskOwnerInput");
 const taskSourceInput = document.getElementById("taskSourceInput");
 const addTaskBtn = document.getElementById("addTaskBtn");
@@ -146,6 +149,7 @@ const dashboardDetailBody = document.getElementById("dashboardDetailBody");
 const dashTotalTaskXp = document.getElementById("dashTotalTaskXp");
 const dashTotalTasksDone = document.getElementById("dashTotalTasksDone");
 const dashTotalLearningXp = document.getElementById("dashTotalLearningXp");
+const dashTotalXp = document.getElementById("dashTotalXp");
 const dashAvgFourdxGreen = document.getElementById("dashAvgFourdxGreen");
 const legacyTaskLearningCsv = document.getElementById("legacyTaskLearningCsv");
 const legacyFourdxCsv = document.getElementById("legacyFourdxCsv");
@@ -232,15 +236,154 @@ tabButtons.forEach(btn=>{
 });
 
 /* TASKS */
+function allTasksList(){
+  return Object.keys(appState.tasks || {}).flatMap((dateKey) =>
+    (appState.tasks[dateKey] || []).map((task) => {
+      task._dateKey = dateKey;
+      task.taskDate = task.taskDate || task.date || dateKey;
+      task.date = task.date || task.taskDate || dateKey;
+      return task;
+    })
+  );
+}
+
+function normalizeTaskDedupeValue(value){
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function activeTaskDedupeKey(task){
+  return [
+    normalizeTaskDedupeValue(task.name || task.title),
+    task.ownerId || task.owner_id || "",
+    task.source || "self",
+    Number(task.effort) || 1
+  ].join("|");
+}
+
+function compareTaskAge(a, b){
+  const aDate = a.taskDate || a.date || a._dateKey || "";
+  const bDate = b.taskDate || b.date || b._dateKey || "";
+  if (aDate !== bDate) return String(aDate).localeCompare(String(bDate));
+  return String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
+}
+
+function activeTasksList(){
+  const byKey = {};
+  allTasksList()
+    .filter((task) => task.status !== "done")
+    .forEach((task) => {
+      const key = activeTaskDedupeKey(task);
+      if (!byKey[key]) {
+        byKey[key] = task;
+        task._hiddenDuplicateCount = 0;
+        return;
+      }
+      const current = byKey[key];
+      const winner = compareTaskAge(task, current) < 0 ? task : current;
+      const loser = winner === task ? current : task;
+      winner._hiddenDuplicateCount = (current._hiddenDuplicateCount || 0) + (task._hiddenDuplicateCount || 0) + 1;
+      loser._hiddenDuplicateCount = 0;
+      byKey[key] = winner;
+    });
+
+  return Object.values(byKey).sort((a, b) => {
+      const aDeadline = a.deadlineAt || "9999-12-31T23:59:59Z";
+      const bDeadline = b.deadlineAt || "9999-12-31T23:59:59Z";
+      if (aDeadline !== bDeadline) return aDeadline.localeCompare(bDeadline);
+      return String(a.taskDate || a.date || "").localeCompare(String(b.taskDate || b.date || ""));
+    });
+}
+
+function taskRemoteId(task){
+  return task && (task.remoteId || (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i.test(task.id || "") ? task.id : ""));
+}
+
+function taskSelectionKey(task){
+  return taskRemoteId(task) || `${task._dateKey || task.taskDate || task.date || ""}:${task.id || task.name || ""}`;
+}
+
+function activeDuplicateGroupTasks(selectedTasks){
+  const selectedGroups = new Set((selectedTasks || []).map(activeTaskDedupeKey));
+  return allTasksList().filter((task) =>
+    task.status !== "done" && selectedGroups.has(activeTaskDedupeKey(task))
+  );
+}
+
+function uniqueTasksBySelectionKey(tasks){
+  const byKey = {};
+  (tasks || []).forEach((task) => {
+    byKey[taskSelectionKey(task)] = task;
+  });
+  return Object.values(byKey);
+}
+
+function taskDailyUpdateFor(task, dateKey){
+  const remoteId = taskRemoteId(task);
+  if (!remoteId) return null;
+  return (appState.taskDailyUpdates || []).find((update) =>
+    update.task_id === remoteId && update.update_date === dateKey
+  ) || null;
+}
+
+function taskXpFromStatus(effort, status){
+  const base = TASK_XP_PER_EFFORT[Number(effort)] || 0;
+  if(status==="done") return base;
+  if(status==="progress") return Math.round(base*0.2);
+  return 0;
+}
+
+function taskXpForDate(task, dateKey){
+  const daily = taskDailyUpdateFor(task, dateKey);
+  if (daily) return Number(daily.xp) || 0;
+  const originalDate = task.taskDate || task.date || task.task_date;
+  return originalDate === dateKey ? taskXpFromStatus(task.effort, task.status) : 0;
+}
+
+function dateTimeLocalToIso(value){
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function isoToDateTimeLocal(value){
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const local = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function formatDeadline(value){
+  if (!value) return "No deadline";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "No deadline";
+  return parsed.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function deadlineStatus(task){
+  if (!task.deadlineAt || task.status === "done") return "";
+  const deadline = new Date(task.deadlineAt);
+  if (Number.isNaN(deadline.getTime())) return "";
+  return deadline.getTime() <= Date.now() ? "Overdue" : "";
+}
+
 function computeTaskStatsForDate(dateKey){
-  const arr = appState.tasks[dateKey] || [];
+  const arr = allTasksList();
   let xp=0, done=0, prog=0, blocked=0;
   arr.forEach(t=>{
-    const eff = TASK_XP_PER_EFFORT[t.effort] || 0;
-    if(t.status==="done") xp += eff;
-    else if(t.status==="progress") xp += Math.round(eff*0.2);
-    if(t.status==="done") done++;
-    if(t.status==="progress") prog++;
+    const daily = taskDailyUpdateFor(t, dateKey);
+    const originalDate = t.taskDate || t.date || t.task_date;
+    xp += taskXpForDate(t, dateKey);
+    if(daily && daily.status==="done") done++;
+    if(daily && daily.status==="progress") prog++;
+    if(!daily && originalDate === dateKey && t.status==="done") done++;
+    if(!daily && originalDate === dateKey && t.status==="progress") prog++;
     if(t.status==="blocked") blocked++;
   });
   const percent = Math.max(0,Math.min(100,Math.round((xp/DAILY_TASK_XP_TARGET)*100)));
@@ -249,7 +392,11 @@ function computeTaskStatsForDate(dateKey){
 
 function renderTasksForToday(){
   const key = getTodayKey();
-  const tasks = appState.tasks[key] || [];
+  const tasks = activeTasksList();
+  const visibleKeys = new Set(tasks.map(taskSelectionKey));
+  Array.from(selectedTaskKeys).forEach((selectionKey) => {
+    if (!visibleKeys.has(selectionKey)) selectedTaskKeys.delete(selectionKey);
+  });
   const stats = computeTaskStatsForDate(key);
 
   xpTodayText.textContent = stats.xp + " XP";
@@ -259,6 +406,70 @@ function renderTasksForToday(){
   dopaminePercentText.textContent = stats.percent + "%";
 
   taskListEl.innerHTML = "";
+  const toolbar = document.createElement("div");
+  toolbar.className = "task-bulk-toolbar";
+  const selectAllLabel = document.createElement("label");
+  selectAllLabel.className = "task-select-label";
+  const selectAllInput = document.createElement("input");
+  selectAllInput.type = "checkbox";
+  selectAllInput.checked = Boolean(tasks.length) && tasks.every((task) => selectedTaskKeys.has(taskSelectionKey(task)));
+  selectAllInput.disabled = !tasks.length;
+  selectAllInput.addEventListener("change", () => {
+    if (selectAllInput.checked) {
+      tasks.forEach((task) => selectedTaskKeys.add(taskSelectionKey(task)));
+    } else {
+      tasks.forEach((task) => selectedTaskKeys.delete(taskSelectionKey(task)));
+    }
+    renderTasksForToday();
+  });
+  selectAllLabel.appendChild(selectAllInput);
+  selectAllLabel.appendChild(document.createTextNode(" Select all"));
+
+  const selectedCount = tasks.filter((task) => selectedTaskKeys.has(taskSelectionKey(task))).length;
+  const selectedText = document.createElement("span");
+  selectedText.className = "task-selection-count";
+  selectedText.textContent = `${selectedCount} selected`;
+
+  const bulkDeleteBtn = document.createElement("button");
+  bulkDeleteBtn.type = "button";
+  bulkDeleteBtn.className = "btn-ghost";
+  bulkDeleteBtn.textContent = "Delete selected";
+  bulkDeleteBtn.disabled = selectedCount === 0;
+  bulkDeleteBtn.addEventListener("click", async () => {
+    const selectedVisibleTasks = tasks.filter((task) => selectedTaskKeys.has(taskSelectionKey(task)));
+    const deleteTargets = uniqueTasksBySelectionKey(activeDuplicateGroupTasks(selectedVisibleTasks));
+    if (!deleteTargets.length) return;
+    const ok = confirm(`Delete ${deleteTargets.length} selected task(s)? This includes repeated duplicate entries.`);
+    if (!ok) return;
+    bulkDeleteBtn.disabled = true;
+    bulkDeleteBtn.textContent = "Deleting...";
+    try {
+      for (const task of deleteTargets) {
+        const remoteId = taskRemoteId(task);
+        if (remoteId && window.HoHoTaskService) await window.HoHoTaskService.deleteTask(remoteId);
+      }
+      deleteTargets.forEach((task) => {
+        const taskDate = task._dateKey || task.taskDate || task.date || key;
+        appState.tasks[taskDate] = (appState.tasks[taskDate] || []).filter((item) => taskSelectionKey(item) !== taskSelectionKey(task));
+      });
+      selectedTaskKeys.clear();
+      saveState();
+      renderTasksForToday();
+      renderTaskHeatmap();
+      renderDopamineRadial();
+      renderMonthlyDopamineChart();
+      updateHoHoMood();
+    } catch (err) {
+      alert("Gagal bulk delete task: " + (err.message || err));
+      renderTasksForToday();
+    }
+  });
+
+  toolbar.appendChild(selectAllLabel);
+  toolbar.appendChild(selectedText);
+  toolbar.appendChild(bulkDeleteBtn);
+  taskListEl.appendChild(toolbar);
+
   if(!tasks.length){
     const empty = document.createElement("div");
     empty.style.fontSize="12px";
@@ -269,12 +480,23 @@ function renderTasksForToday(){
     tasks.forEach(task=>{
       const row = document.createElement("div");
       row.style.display="grid";
-      row.style.gridTemplateColumns="minmax(0,2.4fr) minmax(0,1fr) minmax(0,1.8fr) auto";
+      row.style.gridTemplateColumns="auto minmax(0,2.2fr) minmax(0,1fr) minmax(0,1.2fr) minmax(0,1.8fr) auto";
       row.style.gap="8px";
       row.style.alignItems="center";
       row.style.padding="7px 9px";
       row.style.borderRadius="10px";
       row.style.background="var(--bg-alt)";
+
+      const selectCell = document.createElement("div");
+      const selectInput = document.createElement("input");
+      selectInput.type = "checkbox";
+      selectInput.checked = selectedTaskKeys.has(taskSelectionKey(task));
+      selectInput.addEventListener("change", () => {
+        if (selectInput.checked) selectedTaskKeys.add(taskSelectionKey(task));
+        else selectedTaskKeys.delete(taskSelectionKey(task));
+        renderTasksForToday();
+      });
+      selectCell.appendChild(selectInput);
 
       const nameCell = document.createElement("div");
       const nameSpan = document.createElement("span");
@@ -303,6 +525,22 @@ function renderTasksForToday(){
         meta.textContent = task.source === "delegated" ? "Delegated task" : "Assigned task";
         nameCell.appendChild(meta);
       }
+      if (task.taskDate && task.taskDate !== key) {
+        const carryMeta = document.createElement("div");
+        carryMeta.style.fontSize = "10px";
+        carryMeta.style.color = "var(--text-light)";
+        carryMeta.style.marginTop = "2px";
+        carryMeta.textContent = `Open since ${formatShortDate(task.taskDate)}`;
+        nameCell.appendChild(carryMeta);
+      }
+      if (task._hiddenDuplicateCount) {
+        const duplicateMeta = document.createElement("div");
+        duplicateMeta.style.fontSize = "10px";
+        duplicateMeta.style.color = "var(--text-light)";
+        duplicateMeta.style.marginTop = "2px";
+        duplicateMeta.textContent = `Merged from ${task._hiddenDuplicateCount + 1} repeated entries`;
+        nameCell.appendChild(duplicateMeta);
+      }
 
       const effortCell = document.createElement("div");
       effortCell.style.fontSize="12px";
@@ -311,6 +549,46 @@ function renderTasksForToday(){
       if(task.effort===2) effTxt+=" – Medium";
       if(task.effort===3) effTxt+=" – Large";
       effortCell.textContent = effTxt;
+
+      const deadlineCell = document.createElement("div");
+      deadlineCell.style.display = "flex";
+      deadlineCell.style.flexDirection = "column";
+      deadlineCell.style.gap = "4px";
+      const deadlineBtn = document.createElement("button");
+      deadlineBtn.type = "button";
+      deadlineBtn.className = "deadline-chip";
+      deadlineBtn.textContent = formatDeadline(task.deadlineAt);
+      deadlineBtn.addEventListener("click", async () => {
+        const currentValue = isoToDateTimeLocal(task.deadlineAt);
+        const next = prompt("Edit deadline (YYYY-MM-DDTHH:mm). Kosongkan untuk hapus deadline:", currentValue);
+        if (next === null) return;
+        const deadlineAt = dateTimeLocalToIso(next.trim());
+        if (next.trim() && !deadlineAt) {
+          alert("Format deadline tidak valid.");
+          return;
+        }
+        task.deadlineAt = deadlineAt;
+        try {
+          const remoteId = taskRemoteId(task);
+          if (remoteId && window.HoHoTaskService) {
+            const updated = await window.HoHoTaskService.updateTask(remoteId, { deadlineAt });
+            Object.assign(task, updated);
+          } else {
+            saveState();
+          }
+          renderTasksForToday();
+        } catch (err) {
+          alert("Gagal update deadline: " + (err.message || err));
+        }
+      });
+      deadlineCell.appendChild(deadlineBtn);
+      const dueLabel = deadlineStatus(task);
+      if (dueLabel) {
+        const dueBadge = document.createElement("span");
+        dueBadge.className = "deadline-overdue";
+        dueBadge.textContent = dueLabel;
+        deadlineCell.appendChild(dueBadge);
+      }
 
       const statusCell = document.createElement("div");
       statusCell.style.display="flex";
@@ -332,9 +610,36 @@ function renderTasksForToday(){
           if(s.value==="done") btn.classList.add("active-done");
           if(s.value==="blocked") btn.classList.add("active-blocked");
         }
-        btn.addEventListener("click", ()=>{
+        btn.addEventListener("click", async ()=>{
+          const previousStatus = task.status;
           task.status = s.value;
-          saveState();
+          if (s.value === "done") task.completedAt = new Date().toISOString();
+          if (s.value !== "done") task.completedAt = null;
+          try {
+            const currentUser = window.HoHoCloudService ? window.HoHoCloudService.getCurrentUser() : null;
+            const remoteId = taskRemoteId(task);
+            if (remoteId && window.HoHoTaskService) {
+              const updated = await window.HoHoTaskService.updateTask(remoteId, {
+                status: s.value,
+                completedAt: task.completedAt
+              });
+              Object.assign(task, updated);
+              if ((s.value === "progress" || s.value === "done") && currentUser) {
+                const daily = await window.HoHoTaskService.upsertDailyUpdate(task, currentUser.id, s.value, key);
+                if (daily) {
+                  appState.taskDailyUpdates = (appState.taskDailyUpdates || []).filter((update) =>
+                    !(update.task_id === daily.task_id && update.user_id === daily.user_id && update.update_date === daily.update_date)
+                  );
+                  appState.taskDailyUpdates.push(daily);
+                }
+              }
+            } else {
+              saveState();
+            }
+          } catch (err) {
+            task.status = previousStatus;
+            alert("Gagal update status task: " + (err.message || err));
+          }
           renderTasksForToday();
           renderTaskHeatmap();
           renderDopamineRadial();
@@ -353,10 +658,18 @@ function renderTasksForToday(){
       delBtn.style.padding="4px 8px";
       delBtn.style.borderRadius="999px";
       delBtn.style.background="#f97373";
-      delBtn.addEventListener("click", ()=>{
+      delBtn.addEventListener("click", async ()=>{
         if(confirm("Delete this task?")){
-          appState.tasks[key] = (appState.tasks[key]||[]).filter(t=>t.id!==task.id);
-          saveState();
+          const taskDate = task._dateKey || task.taskDate || task.date || key;
+          const remoteId = taskRemoteId(task);
+          try {
+            if (remoteId && window.HoHoTaskService) await window.HoHoTaskService.deleteTask(remoteId);
+          } catch (err) {
+            alert("Gagal hapus task: " + (err.message || err));
+            return;
+          }
+          appState.tasks[taskDate] = (appState.tasks[taskDate]||[]).filter(t=>t.id!==task.id);
+          if (!remoteId) saveState();
           renderTasksForToday();
           renderTaskHeatmap();
           renderDopamineRadial();
@@ -366,8 +679,10 @@ function renderTasksForToday(){
       });
       actionsCell.appendChild(delBtn);
 
+      row.appendChild(selectCell);
       row.appendChild(nameCell);
       row.appendChild(effortCell);
+      row.appendChild(deadlineCell);
       row.appendChild(statusCell);
       row.appendChild(actionsCell);
       taskListEl.appendChild(row);
@@ -382,6 +697,11 @@ function renderTasksForToday(){
 addTaskBtn.addEventListener("click", async ()=>{
   const name = taskNameInput.value.trim();
   const effort = parseInt(taskEffortInput.value,10) || 1;
+  const deadlineAt = taskDeadlineInput ? dateTimeLocalToIso(taskDeadlineInput.value) : null;
+  if (taskDeadlineInput && taskDeadlineInput.value && !deadlineAt) {
+    alert("Deadline tidak valid.");
+    return;
+  }
   if(!name){ alert("Please enter a task name."); return; }
   const key = getTodayKey();
   const currentUser = window.HoHoCloudService ? window.HoHoCloudService.getCurrentUser() : null;
@@ -414,10 +734,12 @@ addTaskBtn.addEventListener("click", async ()=>{
         createdBy: currentUser.id,
         assignedBy: currentUser.id,
         task_date: key,
+        deadlineAt,
         createdAt: new Date().toISOString()
       }, currentUser.id);
       taskNameInput.value="";
       taskEffortInput.value="1";
+      if (taskDeadlineInput) taskDeadlineInput.value = "";
       if (taskOwnerInput) taskOwnerInput.value = "self";
       if (taskSourceInput) taskSourceInput.value = "self";
       if (cloudStatusText) cloudStatusText.textContent = "Task sent";
@@ -438,8 +760,7 @@ addTaskBtn.addEventListener("click", async ()=>{
     }
   }
 
-  const arr = ensureArray(appState.tasks,key);
-  arr.push({
+  const newTask = {
     id: generateId(),
     ownerId: ownerId || "local",
     createdBy: currentUser ? currentUser.id : "local",
@@ -448,11 +769,36 @@ addTaskBtn.addEventListener("click", async ()=>{
     name,
     effort,
     status: "none",
+    taskDate: key,
+    date: key,
+    deadlineAt,
     createdAt: new Date().toISOString()
-  });
+  };
+  if (currentUser && window.HoHoTaskService) {
+    try {
+      addTaskBtn.disabled = true;
+      addTaskBtn.textContent = "Saving...";
+      const saved = await window.HoHoTaskService.createTask(Object.assign({}, newTask, {
+        task_date: key,
+        ownerId: currentUser.id,
+        createdBy: currentUser.id
+      }), currentUser.id);
+      ensureArray(appState.tasks,key).push(saved);
+      if (cloudStatusText) cloudStatusText.textContent = "Cloud synced";
+    } catch (err) {
+      alert("Gagal membuat task: " + (err.message || err));
+      return;
+    } finally {
+      addTaskBtn.disabled = false;
+      addTaskBtn.textContent = "+ Add Task";
+    }
+  } else {
+    ensureArray(appState.tasks,key).push(newTask);
+    saveState();
+  }
   taskNameInput.value="";
   taskEffortInput.value="1";
-  saveState();
+  if (taskDeadlineInput) taskDeadlineInput.value = "";
   renderTasksForToday();
   renderTaskHeatmap();
 });
@@ -2692,10 +3038,57 @@ function filterDashboardRows(rows) {
   });
 }
 
+function dashboardSortValue(row, key) {
+  const map = {
+    user: row.profile.name || row.profile.email || "",
+    role: row.profile.role || "",
+    totalTaskXp: row.totalTaskXp,
+    totalXp: row.totalXp,
+    done: row.done,
+    progress: row.progress,
+    blocked: row.blocked,
+    totalLearningXp: row.totalLearningXp,
+    learningEntries: row.learningEntries,
+    fourdxGreenPct: row.fourdxGreenPct,
+    assigned: row.assigned,
+    delegated: row.delegated
+  };
+  return map[key];
+}
+
+function sortDashboardRows(rows) {
+  const dir = dashboardSort.direction === "asc" ? 1 : -1;
+  return rows.slice().sort((a, b) => {
+    const av = dashboardSortValue(a, dashboardSort.key);
+    const bv = dashboardSortValue(b, dashboardSort.key);
+    if (typeof av === "number" || typeof bv === "number") return ((Number(av) || 0) - (Number(bv) || 0)) * dir;
+    return String(av || "").localeCompare(String(bv || "")) * dir;
+  });
+}
+
+function bindDashboardSortHeaders() {
+  document.querySelectorAll("[data-dashboard-sort]").forEach((th) => {
+    if (th.dataset.bound) return;
+    th.dataset.bound = "1";
+    th.style.cursor = "pointer";
+    th.title = "Click to sort";
+    th.addEventListener("click", () => {
+      const key = th.dataset.dashboardSort;
+      if (dashboardSort.key === key) {
+        dashboardSort.direction = dashboardSort.direction === "asc" ? "desc" : "asc";
+      } else {
+        dashboardSort = { key, direction: "desc" };
+      }
+      rerenderDashboardFromCache();
+    });
+  });
+}
+
 function renderDashboardTotals(rows) {
   const totalTaskXp = rows.reduce((sum, row) => sum + row.totalTaskXp, 0);
   const totalDone = rows.reduce((sum, row) => sum + row.done, 0);
   const totalLearningXp = rows.reduce((sum, row) => sum + row.totalLearningXp, 0);
+  const totalXp = rows.reduce((sum, row) => sum + row.totalXp, 0);
   const greenRows = rows.filter((row) => row.fourdxGreenPct > 0);
   const avgGreen = greenRows.length
     ? Math.round(greenRows.reduce((sum, row) => sum + row.fourdxGreenPct, 0) / greenRows.length)
@@ -2703,14 +3096,16 @@ function renderDashboardTotals(rows) {
   if (dashTotalTaskXp) dashTotalTaskXp.textContent = totalTaskXp;
   if (dashTotalTasksDone) dashTotalTasksDone.textContent = totalDone;
   if (dashTotalLearningXp) dashTotalLearningXp.textContent = totalLearningXp;
+  if (dashTotalXp) dashTotalXp.textContent = totalXp;
   if (dashAvgFourdxGreen) dashAvgFourdxGreen.textContent = avgGreen + "%";
 }
 
 function renderDashboardTable(rows) {
+  bindDashboardSortHeaders();
   if (!dashboardTableBody) return;
   dashboardTableBody.innerHTML = "";
   if (!rows.length) {
-    dashboardTableBody.innerHTML = `<tr><td colspan="11">No visible dashboard data for this filter.</td></tr>`;
+    dashboardTableBody.innerHTML = `<tr><td colspan="12">No visible dashboard data for this filter.</td></tr>`;
     return;
   }
 
@@ -2721,6 +3116,7 @@ function renderDashboardTable(rows) {
       <td>${row.profile.name || row.profile.email || "-"}</td>
       <td>${row.profile.role || "-"}</td>
       <td>${row.totalTaskXp}</td>
+      <td>${row.totalXp}</td>
       <td>${row.done}</td>
       <td>${row.progress}</td>
       <td>${row.blocked}</td>
@@ -2740,9 +3136,23 @@ function renderDashboardDetail(row) {
   dashboardDetailTitle.textContent = row.profile.name || row.profile.email || "User Detail";
   dashboardDetailMeta.textContent = `${row.profile.role || "regular_user"} • ${row.profile.email || "-"}`;
 
+  const taskEffortControl = (task) => `
+    <span class="dashboard-effort-control" data-dashboard-task-effort="${task.id}">
+      <select data-effort-select="${task.id}">
+        <option value="1" ${Number(task.effort) === 1 ? "selected" : ""}>Effort 1</option>
+        <option value="2" ${Number(task.effort) === 2 ? "selected" : ""}>Effort 2</option>
+        <option value="3" ${Number(task.effort) === 3 ? "selected" : ""}>Effort 3</option>
+      </select>
+      <button type="button" class="btn-ghost" data-effort-save="${task.id}">Save</button>
+    </span>
+  `;
   const recentTasks = row.tasks.slice(0, 8).map((task) =>
-    `<li>${task.task_date}: <b>${task.title}</b> (${task.status}, effort ${task.effort}, ${task.source})</li>`
+    `<li>${task.task_date}: <b>${task.title}</b> (${task.status}, ${task.source}${task.deadline_at ? ", deadline " + formatDeadline(task.deadline_at) : ""}) ${taskEffortControl(task)}</li>`
   ).join("");
+  const pendingTasks = (row.pendingTasks || []).slice(0, 10).map((task) => {
+    const due = task.deadline_at && new Date(task.deadline_at).getTime() <= Date.now() ? " - Overdue" : "";
+    return `<li><b>${task.title}</b> (${task.status}, ${task.source})${task.deadline_at ? " - deadline " + formatDeadline(task.deadline_at) + due : " - no deadline"} ${taskEffortControl(task)}</li>`;
+  }).join("");
   const recentLearning = row.learning.slice(0, 8).map((entry) =>
     `<li>${entry.entry_date}: <b>${categoryLabel(entry.category)}</b>${entry.subskill ? " - " + entry.subskill : ""} (${entry.effort})</li>`
   ).join("");
@@ -2752,7 +3162,11 @@ function renderDashboardDetail(row) {
     <div class="dashboard-detail-block">
       <h4>Tasks</h4>
       <div>XP: <b>${row.totalTaskXp}</b></div>
+      <div>Total XP: <b>${row.totalXp}</b></div>
       <div>Done: <b>${row.done}</b> • Progress: <b>${row.progress}</b> • Blocked: <b>${row.blocked}</b></div>
+      <div style="margin-top:8px;font-weight:700;">Pending/Open Tasks</div>
+      <ul>${pendingTasks || "<li>No pending tasks.</li>"}</ul>
+      <div style="margin-top:8px;font-weight:700;">Recent Tasks</div>
       <ul>${recentTasks || "<li>No task rows in this period.</li>"}</ul>
     </div>
     <div class="dashboard-detail-block">
@@ -2769,6 +3183,24 @@ function renderDashboardDetail(row) {
       <div>Legacy learning XP: <b>${row.legacyLearningXp}</b></div>
     </div>
   `;
+
+  dashboardDetailBody.querySelectorAll("[data-effort-save]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const taskId = btn.getAttribute("data-effort-save");
+      const select = dashboardDetailBody.querySelector(`[data-effort-select="${taskId}"]`);
+      const effort = select ? Number(select.value) : 1;
+      btn.disabled = true;
+      btn.textContent = "Saving...";
+      try {
+        await window.HoHoTaskService.updateTaskEffort(taskId, effort);
+        await renderDashboard();
+      } catch (err) {
+        alert("Gagal update effort task: " + (err.message || err));
+        btn.disabled = false;
+        btn.textContent = "Save";
+      }
+    });
+  });
 }
 
 async function renderDashboard() {
@@ -2780,7 +3212,7 @@ async function renderDashboard() {
     const rows = await window.HoHoDashboardService.loadDashboardData({ startDate, endDate, currentProfile });
     window.__hohoDashboardRows = rows;
     populateDashboardFilters(rows);
-    const filtered = filterDashboardRows(rows);
+    const filtered = sortDashboardRows(filterDashboardRows(rows));
     renderDashboardTotals(filtered);
     renderDashboardTable(filtered);
     setDashboardStatus(`Showing ${filtered.length} user(s), ${startDate} to ${endDate}.`);
@@ -2792,7 +3224,7 @@ async function renderDashboard() {
 
 function rerenderDashboardFromCache() {
   const rows = window.__hohoDashboardRows || [];
-  const filtered = filterDashboardRows(rows);
+  const filtered = sortDashboardRows(filterDashboardRows(rows));
   renderDashboardTotals(filtered);
   renderDashboardTable(filtered);
 }

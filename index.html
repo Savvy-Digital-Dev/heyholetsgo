@@ -172,7 +172,10 @@
             <option value="3">Effort 3 – Large</option>
           </select>
         </div>
-        <div></div>
+        <div>
+          <label>Deadline</label>
+          <input id="taskDeadlineInput" type="datetime-local" />
+        </div>
         <div>
           <button id="addTaskBtn" type="button">+ Add Task</button>
         </div>
@@ -517,6 +520,10 @@
         <strong id="dashTotalLearningXp">0</strong>
       </div>
       <div class="dashboard-metric">
+        <span>Total XP</span>
+        <strong id="dashTotalXp">0</strong>
+      </div>
+      <div class="dashboard-metric">
         <span>4DX Green</span>
         <strong id="dashAvgFourdxGreen">0%</strong>
       </div>
@@ -531,17 +538,18 @@
         <table class="dashboard-table">
           <thead>
             <tr>
-              <th>User</th>
-              <th>Role</th>
-              <th>Task XP</th>
-              <th>Done</th>
-              <th>Progress</th>
-              <th>Blocked</th>
-              <th>Learning XP</th>
-              <th>Learning</th>
-              <th>4DX Green</th>
-              <th>Assigned</th>
-              <th>Delegated</th>
+              <th data-dashboard-sort="user">User</th>
+              <th data-dashboard-sort="role">Role</th>
+              <th data-dashboard-sort="totalTaskXp">Task XP</th>
+              <th data-dashboard-sort="totalXp">Total XP</th>
+              <th data-dashboard-sort="done">Done</th>
+              <th data-dashboard-sort="progress">Progress</th>
+              <th data-dashboard-sort="blocked">Blocked</th>
+              <th data-dashboard-sort="totalLearningXp">Learning XP</th>
+              <th data-dashboard-sort="learningEntries">Learning</th>
+              <th data-dashboard-sort="fourdxGreenPct">4DX Green</th>
+              <th data-dashboard-sort="assigned">Assigned</th>
+              <th data-dashboard-sort="delegated">Delegated</th>
             </tr>
           </thead>
           <tbody id="dashboardTableBody"></tbody>

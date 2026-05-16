@@ -3,12 +3,15 @@
 // Semua urusan state global & localStorage
 // --------------------------------------
 
-// Kunci untuk localStorage
-const STORAGE_KEY = "hhlg_v136_state";
+// Kunci localStorage lama dipertahankan hanya untuk one-time import.
+const LEGACY_STORAGE_KEY = "hhlg_v136_state";
+const LEGACY_BACKUP_KEY = "hhlg_v136_state_backup_before_v2";
+const STORAGE_KEY = "hhlg_v2_state_cache";
 
 // State utama aplikasi
 let appState = {
   tasks: {},          // { "2025-11-24": [ {id, name, effort, status, createdAt}, ... ] }
+  taskDailyUpdates: [],
   learning: {},       // { "2025-11-24": [ {id, category, subskill, effort, note, createdAt}, ... ] }
   theme: "light",     // "light" atau "dark"
   user: {             // profile user
@@ -39,12 +42,18 @@ function getTodayKey() {
 // Load state dari localStorage
 function loadState() {
   try {
+    const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacyRaw && !localStorage.getItem(LEGACY_BACKUP_KEY)) {
+      localStorage.setItem(LEGACY_BACKUP_KEY, legacyRaw);
+    }
+
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return;
 
     const parsed = JSON.parse(raw);
 
     appState.tasks       = parsed.tasks       || {};
+    appState.taskDailyUpdates = parsed.taskDailyUpdates || [];
     appState.learning    = parsed.learning    || {};
     appState.theme       = parsed.theme       || "light";
     appState.user        = parsed.user        || { name: "", position: "" };
@@ -60,6 +69,7 @@ function saveState() {
   try {
     const toSave = {
       tasks:        appState.tasks,
+      taskDailyUpdates: appState.taskDailyUpdates || [],
       learning:     appState.learning,
       theme:        appState.theme,
       user:         appState.user,
