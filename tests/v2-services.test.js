@@ -207,3 +207,34 @@ test('bulk delete candidates expand selected active task to duplicate group', ()
 
   assert.equal(JSON.stringify(candidates.map((task) => task.id).sort()), JSON.stringify(['new', 'old']));
 });
+
+test('analytics service summarizes behavior events into product metrics', () => {
+  const win = runBrowserScript('assets/js/services/analyticsService.js', {
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {}
+    },
+    navigator: { userAgent: 'test', language: 'en' },
+    crypto: { randomUUID: () => '11111111-1111-4111-8111-111111111111' },
+    setTimeout,
+    clearTimeout,
+    innerWidth: 1200,
+    innerHeight: 800
+  });
+
+  const summary = win.HoHoAnalyticsService.summarizeEvents([
+    { user_id: 'u1', event_name: 'task_created', feature_area: 'tasks', properties: {} },
+    { user_id: 'u1', event_name: 'task_status_changed', feature_area: 'tasks', properties: { to_status: 'done' } },
+    { user_id: 'u2', event_name: 'deadline_overdue_seen', feature_area: 'tasks', properties: {} },
+    { user_id: 'u2', event_name: 'effort_corrected_by_admin', feature_area: 'dashboard', properties: {} },
+    { user_id: 'u2', event_name: 'error_seen', feature_area: 'friction', properties: {} }
+  ], [{ id: 's1' }], [], []);
+
+  assert.equal(summary.activeUsers, 2);
+  assert.equal(summary.sessionCount, 1);
+  assert.equal(summary.taskCreated, 1);
+  assert.equal(summary.taskDone, 1);
+  assert.equal(summary.overdueSeen, 1);
+  assert.equal(summary.errors, 1);
+  assert.equal(summary.featureCounts.tasks, 3);
+});
