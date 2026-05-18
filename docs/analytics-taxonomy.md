@@ -28,6 +28,7 @@ HoHo analytics tracks product behavior for feature decisions. It must not track 
 | `effort_corrected_by_admin` | `dashboard` | Admin/superuser corrected task effort. |
 | `legacy_import_used` | `migration` | User/admin used local or CSV import. |
 | `error_seen` | `friction` | App caught a user-facing workflow error. |
+| `feature_time_spent` | active feature | Estimated active time when user changes tab, logs out, closes app, or app becomes inactive. |
 
 ## Core Metrics
 
@@ -40,6 +41,14 @@ HoHo analytics tracks product behavior for feature decisions. It must not track 
 - `overdueSeen`: deadline friction signal.
 - `effortCorrections`: task effort quality signal.
 - `errors`: workflow friction signal.
+- `totalActiveSeconds`: estimated active HoHo usage time.
+- `averageSessionSeconds`: average session span from `analytics_sessions.started_at` to `last_seen_at`, capped at 30 minutes.
+- `averageActiveSecondsPerUser`: active time divided by active users in the selected period.
+- `featureTimeSeconds`: active time grouped by HoHo feature.
+
+## Time Spent Definition
+
+Time spent is a product analytics estimate, not exact surveillance. HoHo records a segment only when the user changes tab, logs out, closes the app, or the browser tab becomes inactive. Segments under 3 seconds are ignored, and one segment is capped at 30 minutes to avoid counting an abandoned open tab.
 
 ## Retention
 

@@ -168,8 +168,12 @@ const insightSessions = document.getElementById("insightSessions");
 const insightEvents = document.getElementById("insightEvents");
 const insightTaskDone = document.getElementById("insightTaskDone");
 const insightFriction = document.getElementById("insightFriction");
+const insightAvgSession = document.getElementById("insightAvgSession");
+const insightAvgActiveUser = document.getElementById("insightAvgActiveUser");
+const insightTotalActive = document.getElementById("insightTotalActive");
 const insightFeatureUsage = document.getElementById("insightFeatureUsage");
 const insightTaskEfficiency = document.getElementById("insightTaskEfficiency");
+const insightTimeByFeature = document.getElementById("insightTimeByFeature");
 const productInsightsList = document.getElementById("productInsightsList");
 
 // ===== 4DX DOM (UI only for now) =====
@@ -209,7 +213,13 @@ themeToggleBtn.addEventListener("click", ()=>{
 });
 
 /* TABS */
+let currentTabId = "tasksTab";
+
 function showTab(tabId){
+  if (window.HoHoAnalyticsService) {
+    window.HoHoAnalyticsService.switchFeature(tabId);
+  }
+  currentTabId = tabId;
 [tasksTabEl, fourdxTabEl, learningTabEl, dashboardTabEl, insightsTabEl, settingsTabEl].forEach(el=>el && el.classList.add("hidden"));
   if(tabId==="tasksTab") tasksTabEl.classList.remove("hidden");
   if(tabId==="fourdxTab") fourdxTabEl.classList.remove("hidden");
@@ -3365,6 +3375,16 @@ function renderInsightList(el, entries, emptyText) {
   `).join("");
 }
 
+function formatInsightDuration(seconds) {
+  const totalSeconds = Math.max(0, Number(seconds || 0));
+  if (totalSeconds < 60) return `${Math.round(totalSeconds)}s`;
+  const minutes = Math.round(totalSeconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
 function escapeInsightHtml(value) {
   return String(value == null ? "" : value)
     .replace(/&/g, "&amp;")
@@ -3412,6 +3432,9 @@ async function renderInsights() {
     if (insightEvents) insightEvents.textContent = summary.eventCount;
     if (insightTaskDone) insightTaskDone.textContent = summary.taskDone;
     if (insightFriction) insightFriction.textContent = summary.errors + summary.overdueSeen;
+    if (insightAvgSession) insightAvgSession.textContent = formatInsightDuration(summary.averageSessionSeconds);
+    if (insightAvgActiveUser) insightAvgActiveUser.textContent = formatInsightDuration(summary.averageActiveSecondsPerUser);
+    if (insightTotalActive) insightTotalActive.textContent = formatInsightDuration(summary.totalActiveSeconds);
     renderInsightList(insightFeatureUsage, Object.entries(summary.featureCounts || {})
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
@@ -3424,6 +3447,9 @@ async function renderInsights() {
       { label: "Overdue seen", value: summary.overdueSeen },
       { label: "Effort corrections", value: summary.effortCorrections }
     ]);
+    renderInsightList(insightTimeByFeature, Object.entries(summary.featureTimeSeconds || {})
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, value]) => ({ label, value: formatInsightDuration(value) })), "No time spent data yet.");
     renderProductInsights(summary);
     setInsightsStatus(`Showing behavior signals from ${startDate} to ${endDate}. Raw event retention target: ${window.HoHoAnalyticsService.retentionDays()} days.`);
   } catch (err) {
@@ -3433,6 +3459,18 @@ async function renderInsights() {
 }
 
 function bindAppEventsOnce() {
+  if (!window.__hohoAnalyticsLifecycleBound) {
+    window.__hohoAnalyticsLifecycleBound = true;
+    document.addEventListener("visibilitychange", () => {
+      if (!window.HoHoAnalyticsService) return;
+      if (document.hidden) window.HoHoAnalyticsService.pauseFeature("visibility_hidden");
+      else window.HoHoAnalyticsService.resumeFeature(currentTabId);
+    });
+    window.addEventListener("pagehide", () => {
+      if (window.HoHoAnalyticsService) window.HoHoAnalyticsService.pauseFeature("pagehide");
+    });
+  }
+
   if (taskOwnerInput && !taskOwnerInput.dataset.bound) {
     taskOwnerInput.dataset.bound = "1";
     taskOwnerInput.addEventListener("change", syncTaskSourceOptions);
@@ -3737,6 +3775,7 @@ function bindAuthEventsOnce() {
   if (logoutBtn && !logoutBtn.dataset.bound) {
     logoutBtn.dataset.bound = "1";
     logoutBtn.addEventListener("click", async () => {
+      if (window.HoHoAnalyticsService) await window.HoHoAnalyticsService.endSession({ flush: true });
       await window.HoHoAuthService.signOut();
       if (window.HoHoAnalyticsService) window.HoHoAnalyticsService.reset();
       window.HoHoCloudService.resetSession();

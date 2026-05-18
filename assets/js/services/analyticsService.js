@@ -3,12 +3,17 @@
   const MAX_QUEUE = 80;
   const FLUSH_DELAY_MS = 1200;
   const RAW_EVENT_RETENTION_DAYS = 180;
+  const MIN_TIME_SPENT_SECONDS = 3;
+  const MAX_TIME_SPENT_SECONDS = 30 * 60;
 
   let currentUser = null;
   let currentProfile = null;
   let sessionId = null;
   let flushTimer = null;
   let flushing = false;
+  let activeTab = null;
+  let activeFeatureArea = null;
+  let activeStartedAt = null;
 
   function client() {
     return window.HoHoSupabase && window.HoHoSupabase.client;
@@ -96,6 +101,7 @@
   }
 
   function inferFeatureArea(eventName) {
+    if (eventName === "feature_time_spent") return "engagement";
     if (eventName.startsWith("task_") || eventName.startsWith("deadline_")) return "tasks";
     if (eventName.startsWith("learning_")) return "learning";
     if (eventName.startsWith("fourdx_")) return "fourdx";
@@ -103,6 +109,78 @@
     if (eventName.includes("import")) return "migration";
     if (eventName.includes("error")) return "friction";
     return "core";
+  }
+
+  function featureAreaForTab(tabId) {
+    const map = {
+      tasksTab: "tasks",
+      fourdxTab: "fourdx",
+      learningTab: "learning",
+      dashboardTab: "dashboard",
+      insightsTab: "insights",
+      settingsTab: "settings"
+    };
+    return map[tabId] || "core";
+  }
+
+  function boundedDurationSeconds(startedAtMs, endedAtMs) {
+    if (!startedAtMs || !endedAtMs || endedAtMs <= startedAtMs) return 0;
+    return sanitizeDurationSeconds(Math.round((endedAtMs - startedAtMs) / 1000));
+  }
+
+  function sanitizeDurationSeconds(seconds) {
+    const value = Math.round(Number(seconds || 0));
+    if (!Number.isFinite(value) || value < MIN_TIME_SPENT_SECONDS) return 0;
+    return Math.min(value, MAX_TIME_SPENT_SECONDS);
+  }
+
+  function recordActiveTime(reason) {
+    if (!activeTab || !activeStartedAt || !currentUser) return 0;
+    const endedAtMs = Date.now();
+    const durationSeconds = boundedDurationSeconds(activeStartedAt, endedAtMs);
+    if (durationSeconds > 0) {
+      track("feature_time_spent", {
+        feature_area: activeFeatureArea || featureAreaForTab(activeTab),
+        tab: activeTab,
+        duration_seconds: durationSeconds,
+        started_at: new Date(activeStartedAt).toISOString(),
+        ended_at: new Date(endedAtMs).toISOString(),
+        reason: reason || "unknown"
+      }, {
+        featureArea: activeFeatureArea || featureAreaForTab(activeTab),
+        entityType: "tab",
+        entityId: activeTab
+      });
+    }
+    return durationSeconds;
+  }
+
+  function startFeatureTimer(tabId) {
+    if (!currentUser || !tabId) return;
+    activeTab = tabId;
+    activeFeatureArea = featureAreaForTab(tabId);
+    activeStartedAt = Date.now();
+  }
+
+  function switchFeature(tabId) {
+    if (!currentUser || !tabId) return;
+    if (activeTab && activeTab !== tabId) recordActiveTime("tab_change");
+    if (!activeTab || activeTab !== tabId || !activeStartedAt) startFeatureTimer(tabId);
+  }
+
+  function pauseFeature(reason) {
+    recordActiveTime(reason || "pause");
+    activeStartedAt = null;
+  }
+
+  function resumeFeature(tabId) {
+    if (!currentUser || activeStartedAt) return;
+    startFeatureTimer(tabId || activeTab || "tasksTab");
+  }
+
+  async function endSession(options) {
+    pauseFeature("session_end");
+    if (options && options.flush) await flushEvents();
   }
 
   function scheduleFlush() {
@@ -132,9 +210,13 @@
   }
 
   function reset() {
+    pauseFeature("reset");
     currentUser = null;
     currentProfile = null;
     sessionId = null;
+    activeTab = null;
+    activeFeatureArea = null;
+    activeStartedAt = null;
   }
 
   function summarizeEvents(events, sessions, summaries, insights) {
@@ -152,11 +234,22 @@
     let effortCorrections = 0;
     let bulkDelete = 0;
     let errors = 0;
+    let totalActiveSeconds = 0;
+    const featureTimeSeconds = {};
 
     rows.forEach((event) => {
       activeUsers.add(event.user_id);
       eventCounts[event.event_name] = (eventCounts[event.event_name] || 0) + 1;
       featureCounts[event.feature_area || "general"] = (featureCounts[event.feature_area || "general"] || 0) + 1;
+      if (event.event_name === "feature_time_spent") {
+        const props = event.properties || {};
+        const featureArea = props.feature_area || event.feature_area || "general";
+        const duration = sanitizeDurationSeconds(props.duration_seconds);
+        if (duration > 0) {
+          totalActiveSeconds += duration;
+          featureTimeSeconds[featureArea] = (featureTimeSeconds[featureArea] || 0) + duration;
+        }
+      }
       if (event.event_name === "task_created") taskCreated++;
       if (event.event_name === "task_status_changed" && event.properties && event.properties.to_status === "done") taskDone++;
       if (event.event_name === "task_deleted") taskDeleted++;
@@ -167,6 +260,27 @@
       if (event.event_name === "effort_corrected_by_admin") effortCorrections++;
       if (event.event_name === "error_seen") errors++;
     });
+
+    if (!totalActiveSeconds && summaries && summaries.length) {
+      summaries.forEach((summary) => {
+        totalActiveSeconds += Number(summary.total_active_seconds || 0);
+        const featureTimes = summary.feature_time_seconds || {};
+        Object.keys(featureTimes).forEach((feature) => {
+          featureTimeSeconds[feature] = (featureTimeSeconds[feature] || 0) + Number(featureTimes[feature] || 0);
+        });
+      });
+    }
+
+    const sessionDurations = sessionRows.map((session) => {
+      const startedAt = Date.parse(session.started_at);
+      const endedAt = Date.parse(session.last_seen_at || session.started_at);
+      if (!startedAt || !endedAt || endedAt <= startedAt) return 0;
+      return Math.min(Math.round((endedAt - startedAt) / 1000), MAX_TIME_SPENT_SECONDS);
+    }).filter(Boolean);
+    const averageSessionSeconds = sessionDurations.length
+      ? Math.round(sessionDurations.reduce((sum, value) => sum + value, 0) / sessionDurations.length)
+      : 0;
+    const averageActiveSecondsPerUser = activeUsers.size ? Math.round(totalActiveSeconds / activeUsers.size) : 0;
 
     const suggestedInsights = [];
     if (overdueSeen >= 5) {
@@ -205,6 +319,26 @@
         suggested_action: "Consider a lightweight learning prompt after task completion."
       });
     }
+    if (activeUsers.size > 0 && averageActiveSecondsPerUser < 300) {
+      suggestedInsights.push({
+        insight_type: "low_active_time",
+        severity: "info",
+        title: "Average active HoHo time is low",
+        evidence_json: { average_active_seconds_per_user: averageActiveSecondsPerUser },
+        suggested_action: "Review onboarding, daily habit prompts, or whether the most important workflows are easy to reach."
+      });
+    }
+    Object.keys(featureTimeSeconds).forEach((feature) => {
+      if (featureTimeSeconds[feature] >= 20 * 60 && taskDone + learningCreated + fourdxCheckin < 3) {
+        suggestedInsights.push({
+          insight_type: "high_time_low_output",
+          severity: "warning",
+          title: `High time spent in ${feature} with low output`,
+          evidence_json: { feature, seconds: featureTimeSeconds[feature], outputs: taskDone + learningCreated + fourdxCheckin },
+          suggested_action: "Inspect the workflow for friction, unclear UI, or repeated manual work."
+        });
+      }
+    });
 
     return {
       activeUsers: activeUsers.size,
@@ -219,6 +353,10 @@
       overdueSeen,
       effortCorrections,
       errors,
+      totalActiveSeconds,
+      averageActiveSecondsPerUser,
+      averageSessionSeconds,
+      featureTimeSeconds,
       eventCounts,
       featureCounts,
       summaries: summaries || [],
@@ -253,6 +391,11 @@
     track,
     flushEvents,
     reset,
+    startFeatureTimer,
+    switchFeature,
+    pauseFeature,
+    resumeFeature,
+    endSession,
     loadInsights,
     summarizeEvents,
     retentionDays

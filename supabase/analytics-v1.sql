@@ -31,6 +31,8 @@ create table if not exists public.analytics_daily_summaries (
   fourdx_checkin int not null default 0,
   overdue_seen int not null default 0,
   effort_corrections int not null default 0,
+  total_active_seconds int not null default 0,
+  feature_time_seconds jsonb not null default '{}'::jsonb,
   feature_usage jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -51,6 +53,12 @@ create table if not exists public.product_insights (
   constraint product_insights_severity_check check (severity in ('info', 'warning', 'critical')),
   constraint product_insights_status_check check (status in ('open', 'reviewing', 'done', 'dismissed'))
 );
+
+alter table public.analytics_daily_summaries
+add column if not exists total_active_seconds int not null default 0;
+
+alter table public.analytics_daily_summaries
+add column if not exists feature_time_seconds jsonb not null default '{}'::jsonb;
 
 create index if not exists idx_analytics_sessions_user_started on public.analytics_sessions(user_id, started_at);
 create index if not exists idx_app_events_user_created on public.app_events(user_id, created_at);

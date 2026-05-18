@@ -63,6 +63,28 @@ Possible actions:
 - Add archive/cleanup mode.
 - Improve migration cleanup guidance.
 
+### Active Time Low
+
+Evidence:
+- `averageActiveSecondsPerUser` is low.
+- Sessions exist but few core workflow events happen.
+
+Possible actions:
+- Improve onboarding or daily prompts.
+- Make the main daily task flow easier to reach.
+- Check whether users understand what HoHo should replace.
+
+### High Time, Low Output
+
+Evidence:
+- `feature_time_spent` is high for one feature.
+- Task done, learning created, or 4DX check-in output is low.
+
+Possible actions:
+- Simplify that feature's workflow.
+- Add clearer empty states or next actions.
+- Reduce repeated manual steps.
+
 ## Agent Workflow
 
 1. Read `docs/analytics-taxonomy.md`.

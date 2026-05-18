@@ -238,3 +238,34 @@ test('analytics service summarizes behavior events into product metrics', () => 
   assert.equal(summary.errors, 1);
   assert.equal(summary.featureCounts.tasks, 3);
 });
+
+test('analytics service summarizes active time and caps invalid durations', () => {
+  const win = runBrowserScript('assets/js/services/analyticsService.js', {
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {}
+    },
+    navigator: { userAgent: 'test', language: 'en' },
+    crypto: { randomUUID: () => '11111111-1111-4111-8111-111111111111' },
+    setTimeout,
+    clearTimeout,
+    innerWidth: 1200,
+    innerHeight: 800
+  });
+
+  const summary = win.HoHoAnalyticsService.summarizeEvents([
+    { user_id: 'u1', event_name: 'feature_time_spent', feature_area: 'tasks', properties: { feature_area: 'tasks', duration_seconds: 120 } },
+    { user_id: 'u1', event_name: 'feature_time_spent', feature_area: 'learning', properties: { feature_area: 'learning', duration_seconds: 2 } },
+    { user_id: 'u2', event_name: 'feature_time_spent', feature_area: 'fourdx', properties: { feature_area: 'fourdx', duration_seconds: 99999 } }
+  ], [
+    { id: 's1', started_at: '2026-05-18T01:00:00.000Z', last_seen_at: '2026-05-18T01:10:00.000Z' },
+    { id: 's2', started_at: '2026-05-18T02:00:00.000Z', last_seen_at: '2026-05-18T03:00:00.000Z' }
+  ], [], []);
+
+  assert.equal(summary.totalActiveSeconds, 1920);
+  assert.equal(summary.featureTimeSeconds.tasks, 120);
+  assert.equal(summary.featureTimeSeconds.fourdx, 1800);
+  assert.equal(summary.featureTimeSeconds.learning, undefined);
+  assert.equal(summary.averageActiveSecondsPerUser, 960);
+  assert.equal(summary.averageSessionSeconds, 1200);
+});
