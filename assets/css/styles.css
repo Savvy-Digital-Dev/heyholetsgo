@@ -231,6 +231,36 @@
       padding: 4px 8px;
       font-size: 11px;
     }
+    .insight-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .insight-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--bg-alt);
+    }
+    .product-insight {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      background: var(--bg-alt);
+      color: var(--text);
+    }
+    .product-insight.warning {
+      border-color: #f59e0b;
+      background: #fffbeb;
+    }
+    .product-insight.critical {
+      border-color: #ef4444;
+      background: #fef2f2;
+    }
 
     header {
       display: flex;

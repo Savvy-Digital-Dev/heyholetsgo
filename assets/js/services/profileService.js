@@ -89,11 +89,21 @@
     return data;
   }
 
+  async function disableUser(userId) {
+    return updateManagedProfile(userId, { status: "disabled" });
+  }
+
+  async function restoreUser(userId) {
+    return updateManagedProfile(userId, { status: "active" });
+  }
+
   window.HoHoProfileService = {
     ensureCurrentProfile,
     getCurrentProfile,
     listAssignableProfiles,
     updateOwnProfile,
-    updateManagedProfile
+    updateManagedProfile,
+    disableUser,
+    restoreUser
   };
 })();

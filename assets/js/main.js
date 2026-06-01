@@ -12,6 +12,7 @@ window.LEARNING_XP_PER_EFFORT = LEARNING_XP_PER_EFFORT;
 let dopamineChart, learningChart, monthlyChart;
 let dashboardSort = { key: "totalXp", direction: "desc" };
 const selectedTaskKeys = new Set();
+const overdueSeenTaskKeys = new Set();
 
 function formatShortDate(dateStr) {
   const d = new Date(dateStr + "T00:00:00");
@@ -75,6 +76,8 @@ const fourdxTabEl = document.getElementById("fourdxTab");
 const learningTabEl = document.getElementById("learningTab");
 const dashboardTabEl = document.getElementById("dashboardTab");
 const dashboardTabBtn = document.getElementById("dashboardTabBtn");
+const insightsTabEl = document.getElementById("insightsTab");
+const insightsTabBtn = document.getElementById("insightsTabBtn");
 const settingsTabEl = document.getElementById("settingsTab");
   const topBarEl = document.getElementById("topBar");
 const loginForm = document.getElementById("loginForm");
@@ -131,6 +134,8 @@ const settingsAssignableUsers = document.getElementById("settingsAssignableUsers
 const settingsRoleInput = document.getElementById("settingsRoleInput");
 const settingsManagerInput = document.getElementById("settingsManagerInput");
 const saveUserRoleBtn = document.getElementById("saveUserRoleBtn");
+const disableUserBtn = document.getElementById("disableUserBtn");
+const restoreUserBtn = document.getElementById("restoreUserBtn");
 const roleSaveStatusText = document.getElementById("roleSaveStatusText");
 const importLegacyBtn = document.getElementById("importLegacyBtn");
 const migrationStatusText = document.getElementById("migrationStatusText");
@@ -156,6 +161,22 @@ const legacyFourdxCsv = document.getElementById("legacyFourdxCsv");
 const importTaskLearningCsvBtn = document.getElementById("importTaskLearningCsvBtn");
 const importFourdxCsvBtn = document.getElementById("importFourdxCsvBtn");
 const legacyImportStatusText = document.getElementById("legacyImportStatusText");
+const insightsStartDate = document.getElementById("insightsStartDate");
+const insightsEndDate = document.getElementById("insightsEndDate");
+const refreshInsightsBtn = document.getElementById("refreshInsightsBtn");
+const insightsStatusText = document.getElementById("insightsStatusText");
+const insightActiveUsers = document.getElementById("insightActiveUsers");
+const insightSessions = document.getElementById("insightSessions");
+const insightEvents = document.getElementById("insightEvents");
+const insightTaskDone = document.getElementById("insightTaskDone");
+const insightFriction = document.getElementById("insightFriction");
+const insightAvgSession = document.getElementById("insightAvgSession");
+const insightAvgActiveUser = document.getElementById("insightAvgActiveUser");
+const insightTotalActive = document.getElementById("insightTotalActive");
+const insightFeatureUsage = document.getElementById("insightFeatureUsage");
+const insightTaskEfficiency = document.getElementById("insightTaskEfficiency");
+const insightTimeByFeature = document.getElementById("insightTimeByFeature");
+const productInsightsList = document.getElementById("productInsightsList");
 
 // ===== 4DX DOM (UI only for now) =====
 const fourdxPeriodSelect = document.getElementById("fourdxPeriodSelect");
@@ -194,14 +215,24 @@ themeToggleBtn.addEventListener("click", ()=>{
 });
 
 /* TABS */
+let currentTabId = "tasksTab";
+
 function showTab(tabId){
-[tasksTabEl, fourdxTabEl, learningTabEl, dashboardTabEl, settingsTabEl].forEach(el=>el && el.classList.add("hidden"));
+  if (window.HoHoAnalyticsService) {
+    window.HoHoAnalyticsService.switchFeature(tabId);
+  }
+  currentTabId = tabId;
+[tasksTabEl, fourdxTabEl, learningTabEl, dashboardTabEl, insightsTabEl, settingsTabEl].forEach(el=>el && el.classList.add("hidden"));
   if(tabId==="tasksTab") tasksTabEl.classList.remove("hidden");
   if(tabId==="fourdxTab") fourdxTabEl.classList.remove("hidden");
   if(tabId==="learningTab") learningTabEl.classList.remove("hidden");
   if(tabId==="dashboardTab" && dashboardTabEl) {
     dashboardTabEl.classList.remove("hidden");
     renderDashboard();
+  }
+  if(tabId==="insightsTab" && insightsTabEl) {
+    insightsTabEl.classList.remove("hidden");
+    renderInsights();
   }
   if(tabId==="settingsTab") settingsTabEl.classList.remove("hidden");
 
@@ -229,6 +260,9 @@ function showTab(tabId){
     } else {
       topBarEl.style.display = "flex";
     }
+  }
+  if (window.HoHoAnalyticsService) {
+    window.HoHoAnalyticsService.track("tab_view", { tab: tabId }, { featureArea: tabId.replace("Tab", "") || "navigation" });
   }
 }
 tabButtons.forEach(btn=>{
@@ -452,6 +486,12 @@ function renderTasksForToday(){
         const taskDate = task._dateKey || task.taskDate || task.date || key;
         appState.tasks[taskDate] = (appState.tasks[taskDate] || []).filter((item) => taskSelectionKey(item) !== taskSelectionKey(task));
       });
+      if (window.HoHoAnalyticsService) {
+        window.HoHoAnalyticsService.track("task_bulk_deleted", {
+          selected_count: selectedVisibleTasks.length,
+          deleted_count: deleteTargets.length
+        }, { featureArea: "tasks" });
+      }
       selectedTaskKeys.clear();
       saveState();
       renderTasksForToday();
@@ -576,6 +616,11 @@ function renderTasksForToday(){
           } else {
             saveState();
           }
+          if (window.HoHoAnalyticsService) {
+            window.HoHoAnalyticsService.track("deadline_set", {
+              has_deadline: Boolean(deadlineAt)
+            }, { featureArea: "tasks", entityType: "task", entityId: remoteId || task.id });
+          }
           renderTasksForToday();
         } catch (err) {
           alert("Gagal update deadline: " + (err.message || err));
@@ -584,6 +629,14 @@ function renderTasksForToday(){
       deadlineCell.appendChild(deadlineBtn);
       const dueLabel = deadlineStatus(task);
       if (dueLabel) {
+        const overdueKey = taskSelectionKey(task);
+        if (!overdueSeenTaskKeys.has(overdueKey) && window.HoHoAnalyticsService) {
+          overdueSeenTaskKeys.add(overdueKey);
+          window.HoHoAnalyticsService.track("deadline_overdue_seen", {
+            status: task.status || "none",
+            effort: task.effort
+          }, { featureArea: "tasks", entityType: "task", entityId: taskRemoteId(task) || task.id });
+        }
         const dueBadge = document.createElement("span");
         dueBadge.className = "deadline-overdue";
         dueBadge.textContent = dueLabel;
@@ -636,8 +689,16 @@ function renderTasksForToday(){
             } else {
               saveState();
             }
+            if (window.HoHoAnalyticsService) {
+              window.HoHoAnalyticsService.track("task_status_changed", {
+                from_status: previousStatus,
+                to_status: s.value,
+                effort: task.effort
+              }, { featureArea: "tasks", entityType: "task", entityId: remoteId || task.id });
+            }
           } catch (err) {
             task.status = previousStatus;
+            if (window.HoHoAnalyticsService) window.HoHoAnalyticsService.track("error_seen", { area: "task_status", message: String(err.message || err).slice(0, 120) }, { featureArea: "friction" });
             alert("Gagal update status task: " + (err.message || err));
           }
           renderTasksForToday();
@@ -670,6 +731,12 @@ function renderTasksForToday(){
           }
           appState.tasks[taskDate] = (appState.tasks[taskDate]||[]).filter(t=>t.id!==task.id);
           if (!remoteId) saveState();
+          if (window.HoHoAnalyticsService) {
+            window.HoHoAnalyticsService.track("task_deleted", {
+              source: task.source || "self",
+              effort: task.effort
+            }, { featureArea: "tasks", entityType: "task", entityId: remoteId || task.id });
+          }
           renderTasksForToday();
           renderTaskHeatmap();
           renderDopamineRadial();
@@ -743,10 +810,19 @@ addTaskBtn.addEventListener("click", async ()=>{
       if (taskOwnerInput) taskOwnerInput.value = "self";
       if (taskSourceInput) taskSourceInput.value = "self";
       if (cloudStatusText) cloudStatusText.textContent = "Task sent";
+      if (window.HoHoAnalyticsService) {
+        window.HoHoAnalyticsService.track("task_created", {
+          source,
+          effort,
+          has_deadline: Boolean(deadlineAt),
+          assigned_to_other: true
+        }, { featureArea: "tasks" });
+      }
       alert("Task berhasil dikirim ke user penerima.");
       return;
     } catch (err) {
       console.error("Failed to create assigned/delegated task", err);
+      if (window.HoHoAnalyticsService) window.HoHoAnalyticsService.track("error_seen", { area: "task_create_for_other", message: String(err.message || err).slice(0, 120) }, { featureArea: "friction" });
       const message = err.message || String(err);
       if (message.includes("row-level security")) {
         alert("Gagal membuat task untuk user lain: akses ditolak oleh RLS. Untuk kirim ke user yang bukan bawahanmu, pilih Delegated task.");
@@ -785,7 +861,16 @@ addTaskBtn.addEventListener("click", async ()=>{
       }), currentUser.id);
       ensureArray(appState.tasks,key).push(saved);
       if (cloudStatusText) cloudStatusText.textContent = "Cloud synced";
+      if (window.HoHoAnalyticsService) {
+        window.HoHoAnalyticsService.track("task_created", {
+          source: "self",
+          effort,
+          has_deadline: Boolean(deadlineAt),
+          assigned_to_other: false
+        }, { featureArea: "tasks", entityType: "task", entityId: saved.remoteId || saved.id });
+      }
     } catch (err) {
+      if (window.HoHoAnalyticsService) window.HoHoAnalyticsService.track("error_seen", { area: "task_create", message: String(err.message || err).slice(0, 120) }, { featureArea: "friction" });
       alert("Gagal membuat task: " + (err.message || err));
       return;
     } finally {
@@ -795,6 +880,14 @@ addTaskBtn.addEventListener("click", async ()=>{
   } else {
     ensureArray(appState.tasks,key).push(newTask);
     saveState();
+    if (window.HoHoAnalyticsService) {
+      window.HoHoAnalyticsService.track("task_created", {
+        source: "self",
+        effort,
+        has_deadline: Boolean(deadlineAt),
+        assigned_to_other: false
+      }, { featureArea: "tasks", entityType: "task", entityId: newTask.id });
+    }
   }
   taskNameInput.value="";
   taskEffortInput.value="1";
@@ -1189,6 +1282,14 @@ addLearningBtn.addEventListener("click",()=>{
     reflection,
     createdAt: new Date().toISOString()
   });
+  if (window.HoHoAnalyticsService) {
+    window.HoHoAnalyticsService.track("learning_created", {
+      category,
+      effort,
+      has_subskill: Boolean(subskill),
+      has_reflection: Boolean(reflection)
+    }, { featureArea: "learning" });
+  }
   saveState();
   learningSubskillInput.value="";
   learningReflectionInput.value="";
@@ -2877,10 +2978,14 @@ function updateRoleVisibility() {
   const role = (currentProfile && currentProfile.role) || appState.user.role || "regular_user";
   const canDashboard = role === "superuser" || role === "admin";
   if (dashboardTabBtn) dashboardTabBtn.classList.toggle("hidden", !canDashboard);
+  if (insightsTabBtn) insightsTabBtn.classList.toggle("hidden", !canDashboard);
   document.querySelectorAll(".admin-only-card").forEach((el) => {
     el.classList.toggle("hidden", !canDashboard);
   });
   document.querySelectorAll(".superuser-only-card").forEach((el) => {
+    el.classList.toggle("hidden", role !== "superuser");
+  });
+  document.querySelectorAll(".superuser-only-action").forEach((el) => {
     el.classList.toggle("hidden", role !== "superuser");
   });
   [settingsRoleInput, settingsManagerInput, saveUserRoleBtn].forEach((el) => {
@@ -2918,14 +3023,34 @@ function populateAssignableUsers() {
       opt.textContent = `${profile.name || profile.email} — ${profile.role || "regular_user"}${profile.status && profile.status !== "active" ? " (" + profile.status + ")" : ""}`;
       opt.dataset.role = profile.role || "regular_user";
       opt.dataset.managerId = profile.manager_id || "";
+      opt.dataset.status = profile.status || "active";
       settingsAssignableUsers.appendChild(opt);
     });
     if (settingsRoleInput && settingsAssignableUsers.selectedOptions[0]) {
       settingsRoleInput.value = settingsAssignableUsers.selectedOptions[0].dataset.role || "regular_user";
     }
     populateManagerOptions();
+    updateUserAccessControls();
   }
   syncTaskSourceOptions();
+}
+
+function updateUserAccessControls() {
+  const currentUser = window.HoHoCloudService ? window.HoHoCloudService.getCurrentUser() : null;
+  const currentProfile = window.HoHoCloudService ? window.HoHoCloudService.getCurrentProfile() : null;
+  const role = (currentProfile && currentProfile.role) || appState.user.role || "regular_user";
+  const selected = settingsAssignableUsers && settingsAssignableUsers.selectedOptions[0];
+  const selectedUserId = settingsAssignableUsers ? settingsAssignableUsers.value : "";
+  const selectedRole = selected ? selected.dataset.role || "regular_user" : "regular_user";
+  const selectedStatus = selected ? selected.dataset.status || "active" : "active";
+  const canManageAccess =
+    role === "superuser" &&
+    selectedUserId &&
+    (!currentUser || selectedUserId !== currentUser.id) &&
+    selectedRole !== "superuser";
+
+  if (disableUserBtn) disableUserBtn.disabled = !canManageAccess || selectedStatus === "disabled";
+  if (restoreUserBtn) restoreUserBtn.disabled = role !== "superuser" || !selectedUserId || selectedStatus !== "disabled";
 }
 
 function populateManagerOptions() {
@@ -3193,6 +3318,11 @@ function renderDashboardDetail(row) {
       btn.textContent = "Saving...";
       try {
         await window.HoHoTaskService.updateTaskEffort(taskId, effort);
+        if (window.HoHoAnalyticsService) {
+          window.HoHoAnalyticsService.track("effort_corrected_by_admin", {
+            new_effort: effort
+          }, { featureArea: "dashboard", entityType: "task", entityId: taskId });
+        }
         await renderDashboard();
       } catch (err) {
         alert("Gagal update effort task: " + (err.message || err));
@@ -3209,6 +3339,9 @@ async function renderDashboard() {
   const { startDate, endDate } = ensureDashboardDates();
   setDashboardStatus("Loading dashboard...");
   try {
+    if (window.HoHoAnalyticsService) {
+      window.HoHoAnalyticsService.track("dashboard_viewed", { dashboard: "team", startDate, endDate }, { featureArea: "dashboard" });
+    }
     const rows = await window.HoHoDashboardService.loadDashboardData({ startDate, endDate, currentProfile });
     window.__hohoDashboardRows = rows;
     populateDashboardFilters(rows);
@@ -3229,7 +3362,140 @@ function rerenderDashboardFromCache() {
   renderDashboardTable(filtered);
 }
 
+function insightsDefaultDates() {
+  const today = new Date(getTodayKey() + "T00:00:00");
+  const start = new Date(today);
+  start.setDate(today.getDate() - 13);
+  return {
+    startDate: new Date(start.getTime() - start.getTimezoneOffset() * 60000).toISOString().slice(0, 10),
+    endDate: getTodayKey()
+  };
+}
+
+function ensureInsightsDates() {
+  if (!insightsStartDate || !insightsEndDate) return insightsDefaultDates();
+  const defaults = insightsDefaultDates();
+  if (!insightsStartDate.value) insightsStartDate.value = defaults.startDate;
+  if (!insightsEndDate.value) insightsEndDate.value = defaults.endDate;
+  return { startDate: insightsStartDate.value, endDate: insightsEndDate.value };
+}
+
+function setInsightsStatus(message, isError) {
+  if (!insightsStatusText) return;
+  insightsStatusText.textContent = message || "";
+  insightsStatusText.style.color = isError ? "#dc2626" : "var(--text-light)";
+}
+
+function renderInsightList(el, entries, emptyText) {
+  if (!el) return;
+  if (!entries || !entries.length) {
+    el.innerHTML = `<div class="dashboard-status">${emptyText || "No data yet."}</div>`;
+    return;
+  }
+  el.innerHTML = entries.map((item) => `
+    <div class="insight-row">
+      <span>${escapeInsightHtml(item.label)}</span>
+      <b>${escapeInsightHtml(item.value)}</b>
+    </div>
+  `).join("");
+}
+
+function formatInsightDuration(seconds) {
+  const totalSeconds = Math.max(0, Number(seconds || 0));
+  if (totalSeconds < 60) return `${Math.round(totalSeconds)}s`;
+  const minutes = Math.round(totalSeconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
+function escapeInsightHtml(value) {
+  return String(value == null ? "" : value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function renderProductInsights(summary) {
+  if (!productInsightsList) return;
+  const stored = (summary.storedInsights || []).map((insight) => ({
+    title: insight.title,
+    severity: insight.severity || "info",
+    action: insight.suggested_action || "-"
+  }));
+  const suggested = (summary.suggestedInsights || []).map((insight) => ({
+    title: insight.title,
+    severity: insight.severity || "info",
+    action: insight.suggested_action || "-"
+  }));
+  const all = suggested.concat(stored).slice(0, 8);
+  if (!all.length) {
+    productInsightsList.innerHTML = `<div class="dashboard-status">No product insight signals yet. Keep collecting behavior events.</div>`;
+    return;
+  }
+  productInsightsList.innerHTML = all.map((insight) => `
+    <div class="product-insight ${escapeInsightHtml(insight.severity)}">
+      <div><b>${escapeInsightHtml(insight.title)}</b></div>
+      <div>${escapeInsightHtml(insight.action)}</div>
+    </div>
+  `).join("");
+}
+
+async function renderInsights() {
+  if (!canUseDashboard() || !window.HoHoAnalyticsService) return;
+  const { startDate, endDate } = ensureInsightsDates();
+  setInsightsStatus("Loading insights...");
+  try {
+    window.HoHoAnalyticsService.track("dashboard_viewed", { dashboard: "insights", startDate, endDate }, { featureArea: "insights" });
+    await window.HoHoAnalyticsService.flushEvents();
+    const summary = await window.HoHoAnalyticsService.loadInsights(startDate, endDate);
+    if (insightActiveUsers) insightActiveUsers.textContent = summary.activeUsers;
+    if (insightSessions) insightSessions.textContent = summary.sessionCount;
+    if (insightEvents) insightEvents.textContent = summary.eventCount;
+    if (insightTaskDone) insightTaskDone.textContent = summary.taskDone;
+    if (insightFriction) insightFriction.textContent = summary.errors + summary.overdueSeen;
+    if (insightAvgSession) insightAvgSession.textContent = formatInsightDuration(summary.averageSessionSeconds);
+    if (insightAvgActiveUser) insightAvgActiveUser.textContent = formatInsightDuration(summary.averageActiveSecondsPerUser);
+    if (insightTotalActive) insightTotalActive.textContent = formatInsightDuration(summary.totalActiveSeconds);
+    renderInsightList(insightFeatureUsage, Object.entries(summary.featureCounts || {})
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([label, value]) => ({ label, value })), "No feature usage yet.");
+    renderInsightList(insightTaskEfficiency, [
+      { label: "Task created", value: summary.taskCreated },
+      { label: "Task done", value: summary.taskDone },
+      { label: "Task deleted", value: summary.taskDeleted },
+      { label: "Bulk delete", value: summary.bulkDelete },
+      { label: "Overdue seen", value: summary.overdueSeen },
+      { label: "Effort corrections", value: summary.effortCorrections }
+    ]);
+    renderInsightList(insightTimeByFeature, Object.entries(summary.featureTimeSeconds || {})
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, value]) => ({ label, value: formatInsightDuration(value) })), "No time spent data yet.");
+    renderProductInsights(summary);
+    setInsightsStatus(`Showing behavior signals from ${startDate} to ${endDate}. Raw event retention target: ${window.HoHoAnalyticsService.retentionDays()} days.`);
+  } catch (err) {
+    console.error("Insights load failed", err);
+    setInsightsStatus("Insights failed: " + (err.message || err), true);
+  }
+}
+
 function bindAppEventsOnce() {
+  if (!window.__hohoAnalyticsLifecycleBound) {
+    window.__hohoAnalyticsLifecycleBound = true;
+    document.addEventListener("visibilitychange", () => {
+      if (!window.HoHoAnalyticsService) return;
+      if (document.hidden) window.HoHoAnalyticsService.pauseFeature("visibility_hidden");
+      else window.HoHoAnalyticsService.resumeFeature(currentTabId);
+    });
+    window.addEventListener("pagehide", () => {
+      if (window.HoHoAnalyticsService) window.HoHoAnalyticsService.pauseFeature("pagehide");
+    });
+  }
+
   if (taskOwnerInput && !taskOwnerInput.dataset.bound) {
     taskOwnerInput.dataset.bound = "1";
     taskOwnerInput.addEventListener("change", syncTaskSourceOptions);
@@ -3245,10 +3511,22 @@ function bindAppEventsOnce() {
     refreshDashboardBtn.addEventListener("click", renderDashboard);
   }
 
+  if (refreshInsightsBtn && !refreshInsightsBtn.dataset.bound) {
+    refreshInsightsBtn.dataset.bound = "1";
+    refreshInsightsBtn.addEventListener("click", renderInsights);
+  }
+
   [dashboardStartDate, dashboardEndDate].forEach((input) => {
     if (input && !input.dataset.bound) {
       input.dataset.bound = "1";
       input.addEventListener("change", renderDashboard);
+    }
+  });
+
+  [insightsStartDate, insightsEndDate].forEach((input) => {
+    if (input && !input.dataset.bound) {
+      input.dataset.bound = "1";
+      input.addEventListener("change", renderInsights);
     }
   });
 
@@ -3270,6 +3548,7 @@ function bindAppEventsOnce() {
       try {
         const result = await window.HoHoDashboardService.importTaskLearningCsv(legacyTaskLearningCsv.value);
         if (legacyImportStatusText) legacyImportStatusText.textContent = `Imported ${result.count} Task/Learning legacy row(s).`;
+        if (window.HoHoAnalyticsService) window.HoHoAnalyticsService.track("legacy_import_used", { type: "task_learning_csv", count: result.count }, { featureArea: "migration" });
         await renderDashboard();
       } catch (err) {
         console.error("Task/Learning CSV import failed", err);
@@ -3291,6 +3570,7 @@ function bindAppEventsOnce() {
       try {
         const result = await window.HoHoDashboardService.importFourdxCsv(legacyFourdxCsv.value);
         if (legacyImportStatusText) legacyImportStatusText.textContent = `Imported ${result.count} 4DX legacy row(s).`;
+        if (window.HoHoAnalyticsService) window.HoHoAnalyticsService.track("legacy_import_used", { type: "fourdx_csv", count: result.count }, { featureArea: "migration" });
         await renderDashboard();
       } catch (err) {
         console.error("4DX CSV import failed", err);
@@ -3325,6 +3605,12 @@ function bindAppEventsOnce() {
 
       if (!appState.fourdx.checkins[todayKey]) appState.fourdx.checkins[todayKey] = {};
       appState.fourdx.checkins[todayKey][leadName] = status;
+      if (window.HoHoAnalyticsService) {
+        window.HoHoAnalyticsService.track("fourdx_checkin", {
+          status,
+          lead_name_length: leadName.length
+        }, { featureArea: "fourdx" });
+      }
 
       saveState();
       render4DX();
@@ -3384,6 +3670,7 @@ function bindAppEventsOnce() {
         await window.HoHoCloudService.hydrate({ user: currentUser });
         populateAssignableUsers();
         if (migrationStatusText) migrationStatusText.textContent = result.message;
+        if (window.HoHoAnalyticsService) window.HoHoAnalyticsService.track("legacy_import_used", { type: "local_storage", imported: Boolean(result.imported) }, { featureArea: "migration" });
         renderAll();
       } catch (err) {
         console.error("Legacy import failed", err);
@@ -3401,7 +3688,13 @@ function bindAppEventsOnce() {
         settingsRoleInput.value = settingsAssignableUsers.selectedOptions[0].dataset.role || "regular_user";
       }
       populateManagerOptions();
+      updateUserAccessControls();
     });
+  }
+
+  if (settingsRoleInput && !settingsRoleInput.dataset.accessBound) {
+    settingsRoleInput.dataset.accessBound = "1";
+    settingsRoleInput.addEventListener("change", updateUserAccessControls);
   }
 
   if (saveUserRoleBtn && !saveUserRoleBtn.dataset.bound) {
@@ -3433,6 +3726,63 @@ function bindAppEventsOnce() {
     });
   }
 
+  if (disableUserBtn && !disableUserBtn.dataset.bound) {
+    disableUserBtn.dataset.bound = "1";
+    disableUserBtn.addEventListener("click", async () => {
+      const userId = settingsAssignableUsers ? settingsAssignableUsers.value : "";
+      const selected = settingsAssignableUsers && settingsAssignableUsers.selectedOptions[0];
+      const selectedRole = selected ? selected.dataset.role || "regular_user" : "regular_user";
+      const selectedLabel = selected ? selected.textContent : "this user";
+      const currentUser = window.HoHoCloudService ? window.HoHoCloudService.getCurrentUser() : null;
+      if (!userId) return;
+      if (currentUser && userId === currentUser.id) {
+        if (roleSaveStatusText) roleSaveStatusText.textContent = "Superuser tidak bisa disable akun sendiri.";
+        return;
+      }
+      if (selectedRole === "superuser") {
+        if (roleSaveStatusText) roleSaveStatusText.textContent = "Superuser account tidak bisa di-disable dari UI.";
+        return;
+      }
+      if (!window.confirm(`Disable access for ${selectedLabel}? User tidak bisa masuk HoHo, tapi data historis tetap aman.`)) return;
+      disableUserBtn.disabled = true;
+      if (roleSaveStatusText) roleSaveStatusText.textContent = "Disabling user access...";
+      try {
+        const updated = await window.HoHoProfileService.disableUser(userId);
+        if (roleSaveStatusText) roleSaveStatusText.textContent = `Access disabled: ${updated.email || updated.name || "user"}`;
+        await window.HoHoCloudService.hydrate({ user: window.HoHoCloudService.getCurrentUser() });
+        populateAssignableUsers();
+        await renderDashboard();
+      } catch (err) {
+        console.error("Disable user failed", err);
+        if (roleSaveStatusText) roleSaveStatusText.textContent = "Disable user failed: " + (err.message || err);
+      } finally {
+        updateUserAccessControls();
+      }
+    });
+  }
+
+  if (restoreUserBtn && !restoreUserBtn.dataset.bound) {
+    restoreUserBtn.dataset.bound = "1";
+    restoreUserBtn.addEventListener("click", async () => {
+      const userId = settingsAssignableUsers ? settingsAssignableUsers.value : "";
+      if (!userId) return;
+      restoreUserBtn.disabled = true;
+      if (roleSaveStatusText) roleSaveStatusText.textContent = "Restoring user access...";
+      try {
+        const updated = await window.HoHoProfileService.restoreUser(userId);
+        if (roleSaveStatusText) roleSaveStatusText.textContent = `Access restored: ${updated.email || updated.name || "user"}`;
+        await window.HoHoCloudService.hydrate({ user: window.HoHoCloudService.getCurrentUser() });
+        populateAssignableUsers();
+        await renderDashboard();
+      } catch (err) {
+        console.error("Restore user failed", err);
+        if (roleSaveStatusText) roleSaveStatusText.textContent = "Restore user failed: " + (err.message || err);
+      } finally {
+        updateUserAccessControls();
+      }
+    });
+  }
+
   if (!window.__hohoBounceStarted) {
     window.__hohoBounceStarted = true;
     scheduleRandomBounce();
@@ -3442,6 +3792,13 @@ function bindAppEventsOnce() {
 async function openAuthenticatedApp(session) {
   if (cloudStatusText) cloudStatusText.textContent = "Loading cloud data...";
   await window.HoHoCloudService.hydrate(session);
+  if (window.HoHoAnalyticsService) {
+    await window.HoHoAnalyticsService.startSession(
+      window.HoHoCloudService.getCurrentUser(),
+      window.HoHoCloudService.getCurrentProfile()
+    );
+    window.HoHoAnalyticsService.track("login_success", {}, { featureArea: "auth" });
+  }
   populateAssignableUsers();
   showAppShell();
   renderAll();
@@ -3464,7 +3821,14 @@ function queueAuthenticatedOpen(session) {
       lastOpenedSessionUserId = userId;
     } catch (err) {
       console.error("Failed to open authenticated app", err);
-      setAuthStatus("Gagal load data Supabase: " + (err.message || err), true);
+      if (err && err.code === "PROFILE_DISABLED") {
+        await window.HoHoAuthService.signOut();
+        window.HoHoCloudService.resetSession();
+        lastOpenedSessionUserId = null;
+        setAuthStatus(err.message || "Akun ini sudah dinonaktifkan. Hubungi admin.", true);
+      } else {
+        setAuthStatus("Gagal load data Supabase: " + (err.message || err), true);
+      }
       showAuthScreen();
     } finally {
       authOpenInProgress = false;
@@ -3506,7 +3870,9 @@ function bindAuthEventsOnce() {
   if (logoutBtn && !logoutBtn.dataset.bound) {
     logoutBtn.dataset.bound = "1";
     logoutBtn.addEventListener("click", async () => {
+      if (window.HoHoAnalyticsService) await window.HoHoAnalyticsService.endSession({ flush: true });
       await window.HoHoAuthService.signOut();
+      if (window.HoHoAnalyticsService) window.HoHoAnalyticsService.reset();
       window.HoHoCloudService.resetSession();
       showAuthScreen();
       setAuthStatus("Logged out.");

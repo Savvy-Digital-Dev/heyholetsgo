@@ -81,6 +81,7 @@
     <button class="tab-btn" data-tab="fourdxTab">4DX</button>
     <button class="tab-btn" data-tab="learningTab">Learning & Skills</button>
     <button class="tab-btn hidden" id="dashboardTabBtn" data-tab="dashboardTab">Dashboard</button>
+    <button class="tab-btn hidden" id="insightsTabBtn" data-tab="insightsTab">Insights</button>
     <button class="tab-btn" data-tab="settingsTab">Settings & Reports</button>
   </div>
 
@@ -590,6 +591,98 @@
     </div>
   </section>
 
+  <!-- ===== TAB INSIGHTS ===== -->
+  <section id="insightsTab" class="tab-content hidden">
+    <div class="card">
+      <div class="section-title">
+        <span>Product Insights</span>
+        <small>Behavior analytics for product decisions</small>
+      </div>
+      <div class="dashboard-filters">
+        <div>
+          <label>Start Date</label>
+          <input id="insightsStartDate" type="date" />
+        </div>
+        <div>
+          <label>End Date</label>
+          <input id="insightsEndDate" type="date" />
+        </div>
+        <div style="display:flex;align-items:flex-end;">
+          <button id="refreshInsightsBtn" type="button">Refresh</button>
+        </div>
+      </div>
+      <div id="insightsStatusText" class="dashboard-status">Loading insights...</div>
+    </div>
+
+    <div class="dashboard-metrics">
+      <div class="dashboard-metric">
+        <span>Active Users</span>
+        <strong id="insightActiveUsers">0</strong>
+      </div>
+      <div class="dashboard-metric">
+        <span>Sessions</span>
+        <strong id="insightSessions">0</strong>
+      </div>
+      <div class="dashboard-metric">
+        <span>Events</span>
+        <strong id="insightEvents">0</strong>
+      </div>
+      <div class="dashboard-metric">
+        <span>Task Done</span>
+        <strong id="insightTaskDone">0</strong>
+      </div>
+      <div class="dashboard-metric">
+        <span>Friction</span>
+        <strong id="insightFriction">0</strong>
+      </div>
+      <div class="dashboard-metric">
+        <span>Avg Session</span>
+        <strong id="insightAvgSession">0m</strong>
+      </div>
+      <div class="dashboard-metric">
+        <span>Avg Active/User</span>
+        <strong id="insightAvgActiveUser">0m</strong>
+      </div>
+      <div class="dashboard-metric">
+        <span>Total Active</span>
+        <strong id="insightTotalActive">0m</strong>
+      </div>
+    </div>
+
+    <div class="grid-2-equal">
+      <div class="card">
+        <div class="section-title">
+          <span>Feature Usage</span>
+          <small>Important interactions only</small>
+        </div>
+        <div id="insightFeatureUsage" class="insight-list"></div>
+      </div>
+      <div class="card">
+        <div class="section-title">
+          <span>Task Efficiency</span>
+          <small>Completion and cleanup signals</small>
+        </div>
+        <div id="insightTaskEfficiency" class="insight-list"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">
+        <span>Time by Feature</span>
+        <small>Estimated active app time</small>
+      </div>
+      <div id="insightTimeByFeature" class="insight-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">
+        <span>Suggested Product Insights</span>
+        <small>Readable by future agents</small>
+      </div>
+      <div id="productInsightsList" class="insight-list"></div>
+    </div>
+  </section>
+
   <!-- ===== TAB SETTINGS ===== -->
     <!-- ===== TAB SETTINGS ===== -->
   <section id="settingsTab" class="tab-content hidden">
@@ -650,6 +743,18 @@
         </div>
         <div style="font-size:11px;color:var(--text-light);">
           Untuk admin: assigned task hanya valid ke user yang manager-nya adalah admin tersebut.
+        </div>
+      </div>
+      <div class="grid-2-equal superuser-only-action" style="align-items:flex-end;margin-top:10px;">
+        <div>
+          <label>User Access</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button id="disableUserBtn" type="button" class="btn-ghost" style="border-color:#ef4444;color:#b91c1c;">Delete User / Disable Access</button>
+            <button id="restoreUserBtn" type="button" class="btn-ghost">Restore Access</button>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-light);">
+          Disable access mencabut akses login HoHo tanpa menghapus data historis.
         </div>
       </div>
       <div class="grid-2-equal" style="align-items:flex-end;margin-top:10px;">
@@ -735,6 +840,7 @@
 <script src="assets/js/services/learningService.js"></script>
 <script src="assets/js/services/fourdxService.js"></script>
 <script src="assets/js/services/dashboardService.js"></script>
+<script src="assets/js/services/analyticsService.js"></script>
 <script src="assets/js/services/migrationService.js"></script>
 <script src="assets/js/services/cloudService.js"></script>
 <script src="assets/js/core/state.js"></script> <!-- nanti isi state -->

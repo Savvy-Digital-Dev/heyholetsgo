@@ -123,6 +123,66 @@ test('task service effort update calls admin recalculation RPC', async () => {
   assert.equal(updated.effort, 1);
 });
 
+test('profile service disables and restores managed user access', async () => {
+  const calls = [];
+  const chain = {
+    update(payload) {
+      calls.push({ type: 'update', payload });
+      return this;
+    },
+    eq(column, value) {
+      calls.push({ type: 'eq', column, value });
+      return this;
+    },
+    select() {
+      return this;
+    },
+    single() {
+      const lastUpdate = calls.filter((call) => call.type === 'update').at(-1);
+      return Promise.resolve({
+        data: { id: 'user-1', email: 'user@example.com', status: lastUpdate.payload.status },
+        error: null
+      });
+    }
+  };
+  const win = runBrowserScript('assets/js/services/profileService.js', {
+    window: {
+      HoHoSupabase: {
+        client: {
+          from: (table) => {
+            calls.push({ type: 'from', table });
+            return chain;
+          }
+        }
+      }
+    }
+  });
+
+  const disabled = await win.HoHoProfileService.disableUser('user-1');
+  const restored = await win.HoHoProfileService.restoreUser('user-1');
+
+  assert.equal(disabled.status, 'disabled');
+  assert.equal(restored.status, 'active');
+  assert.deepEqual(calls.filter((call) => call.type === 'update').map((call) => call.payload.status), ['disabled', 'active']);
+});
+
+test('cloud service rejects disabled profile during hydrate', async () => {
+  const win = runBrowserScript('assets/js/services/cloudService.js', {
+    window: {
+      HoHoAuthService: { isConfigured: () => true },
+      HoHoProfileService: {
+        ensureCurrentProfile: async () => ({ id: 'user-1', email: 'user@example.com', status: 'disabled' }),
+        listAssignableProfiles: async () => []
+      }
+    }
+  });
+
+  await assert.rejects(
+    () => win.HoHoCloudService.hydrate({ user: { id: 'user-1', email: 'user@example.com' } }),
+    (err) => err.code === 'PROFILE_DISABLED' && /dinonaktifkan/.test(err.message)
+  );
+});
+
 test('dashboard CSV parser handles quoted cells and normalized headers', () => {
   const win = runBrowserScript('assets/js/services/dashboardService.js');
   const rows = win.HoHoDashboardService.parseCsv('User Name,Task XP,Learning XP\n"Anissa, Admin",20,10\n');
@@ -206,4 +266,66 @@ test('bulk delete candidates expand selected active task to duplicate group', ()
   const candidates = context.uniqueTasksBySelectionKey(context.activeDuplicateGroupTasks(selected));
 
   assert.equal(JSON.stringify(candidates.map((task) => task.id).sort()), JSON.stringify(['new', 'old']));
+});
+
+test('analytics service summarizes behavior events into product metrics', () => {
+  const win = runBrowserScript('assets/js/services/analyticsService.js', {
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {}
+    },
+    navigator: { userAgent: 'test', language: 'en' },
+    crypto: { randomUUID: () => '11111111-1111-4111-8111-111111111111' },
+    setTimeout,
+    clearTimeout,
+    innerWidth: 1200,
+    innerHeight: 800
+  });
+
+  const summary = win.HoHoAnalyticsService.summarizeEvents([
+    { user_id: 'u1', event_name: 'task_created', feature_area: 'tasks', properties: {} },
+    { user_id: 'u1', event_name: 'task_status_changed', feature_area: 'tasks', properties: { to_status: 'done' } },
+    { user_id: 'u2', event_name: 'deadline_overdue_seen', feature_area: 'tasks', properties: {} },
+    { user_id: 'u2', event_name: 'effort_corrected_by_admin', feature_area: 'dashboard', properties: {} },
+    { user_id: 'u2', event_name: 'error_seen', feature_area: 'friction', properties: {} }
+  ], [{ id: 's1' }], [], []);
+
+  assert.equal(summary.activeUsers, 2);
+  assert.equal(summary.sessionCount, 1);
+  assert.equal(summary.taskCreated, 1);
+  assert.equal(summary.taskDone, 1);
+  assert.equal(summary.overdueSeen, 1);
+  assert.equal(summary.errors, 1);
+  assert.equal(summary.featureCounts.tasks, 3);
+});
+
+test('analytics service summarizes active time and caps invalid durations', () => {
+  const win = runBrowserScript('assets/js/services/analyticsService.js', {
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {}
+    },
+    navigator: { userAgent: 'test', language: 'en' },
+    crypto: { randomUUID: () => '11111111-1111-4111-8111-111111111111' },
+    setTimeout,
+    clearTimeout,
+    innerWidth: 1200,
+    innerHeight: 800
+  });
+
+  const summary = win.HoHoAnalyticsService.summarizeEvents([
+    { user_id: 'u1', event_name: 'feature_time_spent', feature_area: 'tasks', properties: { feature_area: 'tasks', duration_seconds: 120 } },
+    { user_id: 'u1', event_name: 'feature_time_spent', feature_area: 'learning', properties: { feature_area: 'learning', duration_seconds: 2 } },
+    { user_id: 'u2', event_name: 'feature_time_spent', feature_area: 'fourdx', properties: { feature_area: 'fourdx', duration_seconds: 99999 } }
+  ], [
+    { id: 's1', started_at: '2026-05-18T01:00:00.000Z', last_seen_at: '2026-05-18T01:10:00.000Z' },
+    { id: 's2', started_at: '2026-05-18T02:00:00.000Z', last_seen_at: '2026-05-18T03:00:00.000Z' }
+  ], [], []);
+
+  assert.equal(summary.totalActiveSeconds, 1920);
+  assert.equal(summary.featureTimeSeconds.tasks, 120);
+  assert.equal(summary.featureTimeSeconds.fourdx, 1800);
+  assert.equal(summary.featureTimeSeconds.learning, undefined);
+  assert.equal(summary.averageActiveSecondsPerUser, 960);
+  assert.equal(summary.averageSessionSeconds, 1200);
 });
