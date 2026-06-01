@@ -134,6 +134,8 @@ const settingsAssignableUsers = document.getElementById("settingsAssignableUsers
 const settingsRoleInput = document.getElementById("settingsRoleInput");
 const settingsManagerInput = document.getElementById("settingsManagerInput");
 const saveUserRoleBtn = document.getElementById("saveUserRoleBtn");
+const disableUserBtn = document.getElementById("disableUserBtn");
+const restoreUserBtn = document.getElementById("restoreUserBtn");
 const roleSaveStatusText = document.getElementById("roleSaveStatusText");
 const importLegacyBtn = document.getElementById("importLegacyBtn");
 const migrationStatusText = document.getElementById("migrationStatusText");
@@ -2983,6 +2985,9 @@ function updateRoleVisibility() {
   document.querySelectorAll(".superuser-only-card").forEach((el) => {
     el.classList.toggle("hidden", role !== "superuser");
   });
+  document.querySelectorAll(".superuser-only-action").forEach((el) => {
+    el.classList.toggle("hidden", role !== "superuser");
+  });
   [settingsRoleInput, settingsManagerInput, saveUserRoleBtn].forEach((el) => {
     if (el) el.disabled = role !== "superuser";
   });
@@ -3018,14 +3023,34 @@ function populateAssignableUsers() {
       opt.textContent = `${profile.name || profile.email} — ${profile.role || "regular_user"}${profile.status && profile.status !== "active" ? " (" + profile.status + ")" : ""}`;
       opt.dataset.role = profile.role || "regular_user";
       opt.dataset.managerId = profile.manager_id || "";
+      opt.dataset.status = profile.status || "active";
       settingsAssignableUsers.appendChild(opt);
     });
     if (settingsRoleInput && settingsAssignableUsers.selectedOptions[0]) {
       settingsRoleInput.value = settingsAssignableUsers.selectedOptions[0].dataset.role || "regular_user";
     }
     populateManagerOptions();
+    updateUserAccessControls();
   }
   syncTaskSourceOptions();
+}
+
+function updateUserAccessControls() {
+  const currentUser = window.HoHoCloudService ? window.HoHoCloudService.getCurrentUser() : null;
+  const currentProfile = window.HoHoCloudService ? window.HoHoCloudService.getCurrentProfile() : null;
+  const role = (currentProfile && currentProfile.role) || appState.user.role || "regular_user";
+  const selected = settingsAssignableUsers && settingsAssignableUsers.selectedOptions[0];
+  const selectedUserId = settingsAssignableUsers ? settingsAssignableUsers.value : "";
+  const selectedRole = selected ? selected.dataset.role || "regular_user" : "regular_user";
+  const selectedStatus = selected ? selected.dataset.status || "active" : "active";
+  const canManageAccess =
+    role === "superuser" &&
+    selectedUserId &&
+    (!currentUser || selectedUserId !== currentUser.id) &&
+    selectedRole !== "superuser";
+
+  if (disableUserBtn) disableUserBtn.disabled = !canManageAccess || selectedStatus === "disabled";
+  if (restoreUserBtn) restoreUserBtn.disabled = role !== "superuser" || !selectedUserId || selectedStatus !== "disabled";
 }
 
 function populateManagerOptions() {
@@ -3663,7 +3688,13 @@ function bindAppEventsOnce() {
         settingsRoleInput.value = settingsAssignableUsers.selectedOptions[0].dataset.role || "regular_user";
       }
       populateManagerOptions();
+      updateUserAccessControls();
     });
+  }
+
+  if (settingsRoleInput && !settingsRoleInput.dataset.accessBound) {
+    settingsRoleInput.dataset.accessBound = "1";
+    settingsRoleInput.addEventListener("change", updateUserAccessControls);
   }
 
   if (saveUserRoleBtn && !saveUserRoleBtn.dataset.bound) {
@@ -3691,6 +3722,63 @@ function bindAppEventsOnce() {
         if (roleSaveStatusText) roleSaveStatusText.textContent = "User update failed: " + (err.message || err);
       } finally {
         saveUserRoleBtn.disabled = false;
+      }
+    });
+  }
+
+  if (disableUserBtn && !disableUserBtn.dataset.bound) {
+    disableUserBtn.dataset.bound = "1";
+    disableUserBtn.addEventListener("click", async () => {
+      const userId = settingsAssignableUsers ? settingsAssignableUsers.value : "";
+      const selected = settingsAssignableUsers && settingsAssignableUsers.selectedOptions[0];
+      const selectedRole = selected ? selected.dataset.role || "regular_user" : "regular_user";
+      const selectedLabel = selected ? selected.textContent : "this user";
+      const currentUser = window.HoHoCloudService ? window.HoHoCloudService.getCurrentUser() : null;
+      if (!userId) return;
+      if (currentUser && userId === currentUser.id) {
+        if (roleSaveStatusText) roleSaveStatusText.textContent = "Superuser tidak bisa disable akun sendiri.";
+        return;
+      }
+      if (selectedRole === "superuser") {
+        if (roleSaveStatusText) roleSaveStatusText.textContent = "Superuser account tidak bisa di-disable dari UI.";
+        return;
+      }
+      if (!window.confirm(`Disable access for ${selectedLabel}? User tidak bisa masuk HoHo, tapi data historis tetap aman.`)) return;
+      disableUserBtn.disabled = true;
+      if (roleSaveStatusText) roleSaveStatusText.textContent = "Disabling user access...";
+      try {
+        const updated = await window.HoHoProfileService.disableUser(userId);
+        if (roleSaveStatusText) roleSaveStatusText.textContent = `Access disabled: ${updated.email || updated.name || "user"}`;
+        await window.HoHoCloudService.hydrate({ user: window.HoHoCloudService.getCurrentUser() });
+        populateAssignableUsers();
+        await renderDashboard();
+      } catch (err) {
+        console.error("Disable user failed", err);
+        if (roleSaveStatusText) roleSaveStatusText.textContent = "Disable user failed: " + (err.message || err);
+      } finally {
+        updateUserAccessControls();
+      }
+    });
+  }
+
+  if (restoreUserBtn && !restoreUserBtn.dataset.bound) {
+    restoreUserBtn.dataset.bound = "1";
+    restoreUserBtn.addEventListener("click", async () => {
+      const userId = settingsAssignableUsers ? settingsAssignableUsers.value : "";
+      if (!userId) return;
+      restoreUserBtn.disabled = true;
+      if (roleSaveStatusText) roleSaveStatusText.textContent = "Restoring user access...";
+      try {
+        const updated = await window.HoHoProfileService.restoreUser(userId);
+        if (roleSaveStatusText) roleSaveStatusText.textContent = `Access restored: ${updated.email || updated.name || "user"}`;
+        await window.HoHoCloudService.hydrate({ user: window.HoHoCloudService.getCurrentUser() });
+        populateAssignableUsers();
+        await renderDashboard();
+      } catch (err) {
+        console.error("Restore user failed", err);
+        if (roleSaveStatusText) roleSaveStatusText.textContent = "Restore user failed: " + (err.message || err);
+      } finally {
+        updateUserAccessControls();
       }
     });
   }
@@ -3733,7 +3821,14 @@ function queueAuthenticatedOpen(session) {
       lastOpenedSessionUserId = userId;
     } catch (err) {
       console.error("Failed to open authenticated app", err);
-      setAuthStatus("Gagal load data Supabase: " + (err.message || err), true);
+      if (err && err.code === "PROFILE_DISABLED") {
+        await window.HoHoAuthService.signOut();
+        window.HoHoCloudService.resetSession();
+        lastOpenedSessionUserId = null;
+        setAuthStatus(err.message || "Akun ini sudah dinonaktifkan. Hubungi admin.", true);
+      } else {
+        setAuthStatus("Gagal load data Supabase: " + (err.message || err), true);
+      }
       showAuthScreen();
     } finally {
       authOpenInProgress = false;

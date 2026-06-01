@@ -745,6 +745,18 @@
           Untuk admin: assigned task hanya valid ke user yang manager-nya adalah admin tersebut.
         </div>
       </div>
+      <div class="grid-2-equal superuser-only-action" style="align-items:flex-end;margin-top:10px;">
+        <div>
+          <label>User Access</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button id="disableUserBtn" type="button" class="btn-ghost" style="border-color:#ef4444;color:#b91c1c;">Delete User / Disable Access</button>
+            <button id="restoreUserBtn" type="button" class="btn-ghost">Restore Access</button>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-light);">
+          Disable access mencabut akses login HoHo tanpa menghapus data historis.
+        </div>
+      </div>
       <div class="grid-2-equal" style="align-items:flex-end;margin-top:10px;">
         <div></div>
         <div id="roleSaveStatusText" style="font-size:11px;color:var(--text-light);"></div>

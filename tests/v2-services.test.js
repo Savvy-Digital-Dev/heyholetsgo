@@ -123,6 +123,66 @@ test('task service effort update calls admin recalculation RPC', async () => {
   assert.equal(updated.effort, 1);
 });
 
+test('profile service disables and restores managed user access', async () => {
+  const calls = [];
+  const chain = {
+    update(payload) {
+      calls.push({ type: 'update', payload });
+      return this;
+    },
+    eq(column, value) {
+      calls.push({ type: 'eq', column, value });
+      return this;
+    },
+    select() {
+      return this;
+    },
+    single() {
+      const lastUpdate = calls.filter((call) => call.type === 'update').at(-1);
+      return Promise.resolve({
+        data: { id: 'user-1', email: 'user@example.com', status: lastUpdate.payload.status },
+        error: null
+      });
+    }
+  };
+  const win = runBrowserScript('assets/js/services/profileService.js', {
+    window: {
+      HoHoSupabase: {
+        client: {
+          from: (table) => {
+            calls.push({ type: 'from', table });
+            return chain;
+          }
+        }
+      }
+    }
+  });
+
+  const disabled = await win.HoHoProfileService.disableUser('user-1');
+  const restored = await win.HoHoProfileService.restoreUser('user-1');
+
+  assert.equal(disabled.status, 'disabled');
+  assert.equal(restored.status, 'active');
+  assert.deepEqual(calls.filter((call) => call.type === 'update').map((call) => call.payload.status), ['disabled', 'active']);
+});
+
+test('cloud service rejects disabled profile during hydrate', async () => {
+  const win = runBrowserScript('assets/js/services/cloudService.js', {
+    window: {
+      HoHoAuthService: { isConfigured: () => true },
+      HoHoProfileService: {
+        ensureCurrentProfile: async () => ({ id: 'user-1', email: 'user@example.com', status: 'disabled' }),
+        listAssignableProfiles: async () => []
+      }
+    }
+  });
+
+  await assert.rejects(
+    () => win.HoHoCloudService.hydrate({ user: { id: 'user-1', email: 'user@example.com' } }),
+    (err) => err.code === 'PROFILE_DISABLED' && /dinonaktifkan/.test(err.message)
+  );
+});
+
 test('dashboard CSV parser handles quoted cells and normalized headers', () => {
   const win = runBrowserScript('assets/js/services/dashboardService.js');
   const rows = win.HoHoDashboardService.parseCsv('User Name,Task XP,Learning XP\n"Anissa, Admin",20,10\n');

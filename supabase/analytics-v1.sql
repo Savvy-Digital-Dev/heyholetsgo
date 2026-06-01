@@ -116,7 +116,7 @@ drop policy if exists "analytics_sessions_insert_own" on public.analytics_sessio
 create policy "analytics_sessions_insert_own"
 on public.analytics_sessions for insert
 to authenticated
-with check (user_id = auth.uid());
+with check (public.current_user_is_active() and user_id = auth.uid());
 
 drop policy if exists "analytics_sessions_select_visible" on public.analytics_sessions;
 create policy "analytics_sessions_select_visible"
@@ -128,14 +128,14 @@ drop policy if exists "analytics_sessions_update_own" on public.analytics_sessio
 create policy "analytics_sessions_update_own"
 on public.analytics_sessions for update
 to authenticated
-using (user_id = auth.uid())
-with check (user_id = auth.uid());
+using (public.current_user_is_active() and user_id = auth.uid())
+with check (public.current_user_is_active() and user_id = auth.uid());
 
 drop policy if exists "app_events_insert_own" on public.app_events;
 create policy "app_events_insert_own"
 on public.app_events for insert
 to authenticated
-with check (user_id = auth.uid());
+with check (public.current_user_is_active() and user_id = auth.uid());
 
 drop policy if exists "app_events_select_visible" on public.app_events;
 create policy "app_events_select_visible"

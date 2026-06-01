@@ -29,6 +29,11 @@
 
     try {
       currentProfile = await window.HoHoProfileService.ensureCurrentProfile(session.user);
+      if (currentProfile && currentProfile.status && currentProfile.status !== "active") {
+        const err = new Error("Akun ini sudah dinonaktifkan. Hubungi admin.");
+        err.code = "PROFILE_DISABLED";
+        throw err;
+      }
       assignableProfiles = await window.HoHoProfileService.listAssignableProfiles();
 
       const today = new Date();
